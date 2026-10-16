@@ -7,8 +7,12 @@ optimizer_runs = 200
 remappings = [
     '@lattice/=lib/lattice/src/',
     '@diamond/=lib/lattice/lib/diamond-lib/src/',
+    '@lattice-script/=lib/lattice/script/',
+    '@lattice-test/=lib/lattice/test/',
     'forge-std/=lib/lattice/lib/forge-std/src/',
 ]
+ffi = true
+fs_permissions = [{ access = "read", path = "out" }]
 
 [rpc_endpoints]
 arc-testnet = "${ARC_TESTNET_RPC}"   # chain 5042002
