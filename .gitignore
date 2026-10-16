@@ -1,0 +1,9 @@
+.env
+.env.*
+!.env.example
+contracts/out/
+contracts/cache/
+contracts/broadcast/*/31337/
+node_modules/
+.DS_Store
+docs/HANDOFF.md
