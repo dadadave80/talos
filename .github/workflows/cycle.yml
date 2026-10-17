@@ -1,0 +1,20 @@
+name: operator-cycle
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+concurrency:
+  group: operator-cycle
+  cancel-in-progress: false
+jobs:
+  cycle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: POST /api/cycle
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          TALOS_URL: ${{ vars.TALOS_URL }}
+        run: |
+          curl -sS --fail-with-body --max-time 310 -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" "$TALOS_URL/api/cycle"
