@@ -51,6 +51,11 @@ The pending operation is visible on `/policy` and on the explorer.
 Schedule `revokeSessionKey(old)` and `registerSessionKey(new, 0, expiry, [commit, pay, queue])` in one
 `scheduleBatch`. Until it executes, pause with `emergencyStop` if the old key is suspected compromised.
 
+## Web app deploys
+Every push to `main` deploys production (Vercel project root `apps/web`, `bun install`, `bun run build`). Do not run
+`vercel deploy` from `apps/web`: with the root set, the CLI would look for `apps/web/apps/web`. `NEXT_PUBLIC_*`
+values are baked in at build time, so after changing one in Vercel, push (or redeploy from the dashboard).
+
 ## Cron
 `.github/workflows/cycle.yml` runs hourly and on demand (Actions → operator-cycle → Run workflow). Repo secret
 `CRON_SECRET`, repo variable `TALOS_URL`. A failed run is not retried; the next hour picks up where it left off.
