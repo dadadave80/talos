@@ -56,7 +56,13 @@ const STATUS: { tool: string; use: string; status: string; tone: string; proof?:
     tone: "text-pay",
     proof: `${REPO}/blob/main/apps/web/scripts/circle-6492-check.ts`,
   },
-  { tool: "Circle Gateway + x402", use: "The agent pays its own bills (metered Arc RPC reads) from a daily float", status: "built, not yet run", tone: "text-queue" },
+  {
+    tool: "Circle Gateway + x402",
+    use: "The agent pays its own bills: a daily float into Gateway, then an Arc RPC read from Quicknode each cycle over x402",
+    status: "live",
+    tone: "text-pay",
+    proof: "https://explorer.testnet.arc.io/tx/0xca88795c86c7e48dcc950db8343ba38ccb5cb1247b7b739225ac12d75cb85ea9",
+  },
   { tool: "Circle Facilitator Service", use: "The 0.05 USDC paid attempt, settled into the vault", status: "not built", tone: "text-ink-3" },
   { tool: "Bridge Kit / CCTP", use: "Contributor payouts on Base", status: "cut", tone: "text-ink-3" },
 ];

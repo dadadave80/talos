@@ -9,7 +9,7 @@ The arena is a security program, not a game of chance: no prize pool, no escalat
 ## Judge's two-minute tour
 1. **[/evidence](https://talos-treasury.vercel.app/evidence)** — the statement (deposits + tolls − paid out = vault balance) and the counters. Every attempt row opens its commit and pay transactions on the explorer.
 2. **[/policy](https://talos-treasury.vercel.app/policy)** — caps, keys, the 48-hour timelock, the queue and the prompt hash, all read from the vault at the block shown.
-3. **[Try it](https://talos-treasury.vercel.app)** — five free attempts a day with a Circle Modular Wallets passkey or your own wallet. Each verdict is committed on-chain before anything moves, and you get a shareable receipt. [`/?judge=1`](https://talos-treasury.vercel.app/?judge=1) runs a five-step guided tour.
+3. **[Try it](https://talos-treasury.vercel.app)** — five free attempts a day with a Circle Modular Wallets passkey or your own wallet. Each verdict is committed on-chain before anything moves, and you get a shareable receipt. Your account (top right, or [/account](https://talos-treasury.vercel.app/account)) keeps your free attempts, record and saved passkeys; light and dark themes follow your device until you pick one. [`/?judge=1`](https://talos-treasury.vercel.app/?judge=1) runs a five-step guided tour.
 4. **Contracts:** [docs/ADDRESSES.md](docs/ADDRESSES.md) — the vault diamond and all 17 facets and inits, Sourcify exact match.
 
 ## What it does
@@ -18,7 +18,7 @@ An hourly operator cycle (GitHub Actions → `POST /api/cycle`) and the arena sh
 | Step | What happens | Proof (Arc testnet) |
 | --- | --- | --- |
 | Contributor bounties | A maintainer labels a Lattice issue `bounty:N`; the PR that closes it inherits the bounty. When it merges, the cycle pays the author once, from the CONTRIBUTOR tier, or queues it for the owner if the payee is not allowlisted. Open now: [#335](https://github.com/dadadave80/lattice/issues/335) (2), [#244](https://github.com/dadadave80/lattice/issues/244) (3), [#336](https://github.com/dadadave80/lattice/issues/336) (4 USDC). | cycle run [39029070380](https://github.com/dadadave80/talos/actions/runs/39029070380) |
-| Its own bills | The VENDOR tier funds a daily ops float into Circle Gateway, and the agent buys metered search over x402. | code in `apps/web/lib/cycle.ts`; not yet run (see gaps) |
+| Its own bills | Once a day the VENDOR tier pays a 1 USDC ops float to the agent, which deposits it into Circle Gateway; every cycle the agent buys one Arc RPC read from Quicknode over x402 (0.0001 USDC, `GatewayWalletBatched`). | float [commit](https://explorer.testnet.arc.io/tx/0x4af2f59d9c8760f4d863348d6d33ddf86e1791d3cc4ccf6d5116393f8197d459), [pay](https://explorer.testnet.arc.io/tx/0xc4c37326e50ca71d8e7503d73b127ca1f1b7cb2743bb26378698347127c282d6) · Gateway [deposit](https://explorer.testnet.arc.io/tx/0xca88795c86c7e48dcc950db8343ba38ccb5cb1247b7b739225ac12d75cb85ea9) · x402 settlement `a501be87-35be-4bd9-bf12-4e2291871ffd` · cycle run [39066082194](https://github.com/dadadave80/talos/actions/runs/39066082194) |
 | The arena | A message is judged into PAY / QUEUE / REFUSE with a reason. Refusals are committed by a commit-only hot key, so the key exposed to attack traffic can never move funds. | PAY 0.10: [commit](https://explorer.testnet.arc.io/tx/0xc41e3c68a61935b0263661d1532d267ce1e28795296a7e748db60ef7cbe0784f), [pay](https://explorer.testnet.arc.io/tx/0xdced20cf6bce13d36b3135474a617222a76e0d2e964ecca1cae8458e5b48a9a7) · REFUSE of "SYSTEM OVERRIDE": [commit](https://explorer.testnet.arc.io/tx/0x1ad955e136776bfa75ec771421562c9f0a057ea24e13991145b5d95617921e88) |
 | No commit, no money | `pay()` without a fresh PAY commitment reverts. | [`NotCommitted()`](https://explorer.testnet.arc.io/tx/0x8e916766e0b28fc8008da57f21675f34eaa2d9f75a8bd43e80331b5572bf997b) |
 
@@ -35,7 +35,7 @@ An hourly operator cycle (GitHub Actions → `POST /api/cycle`) and the arena sh
 | --- | --- | --- |
 | Arc (USDC gas) | the vault, every commit and payment | live on testnet |
 | Circle Modular Wallets | passkey sign-in: a passkey-owned MSCA signs free attempts; undeployed accounts verify through ERC-6492 ([`scripts/circle-6492-check.ts`](apps/web/scripts/circle-6492-check.ts) proves it on Arc) | live |
-| Gateway + x402 | the agent's VENDOR bills (`BatchEvmScheme`) | built, not yet run |
+| Gateway + x402 | the agent's VENDOR bills: Gateway deposit, then one x402 purchase per cycle (`BatchEvmScheme`) | live on testnet |
 | Facilitator Service | the 0.05 USDC paid attempt, settled into the vault | not built |
 | Bridge Kit / CCTP V2 | contributor payout on Base | cut |
 | Arc Foundry | real-USDC tests: `arc-forge test --network arc` forks Arc and pays through the USDC precompile, which stock Foundry cannot execute | used |
@@ -51,7 +51,6 @@ See [docs/PRIOR_WORK.md](docs/PRIOR_WORK.md): Lattice is pinned at `v0.5.0` as a
 ## Honest gaps
 - **Testnet, not mainnet yet.** Every address and transaction above is on Arc testnet (chain 5042002). The mainnet deploy is the owner's to run (docs/OPERATIONS.md); the vault will hold at most 50 USDC.
 - **No paid attempts yet.** The 0.05 USDC toll (Facilitator Service) is not built; the arena runs on the free tier only (5 per wallet per day, 500 per day overall, one message per 20 s, signature nonces never reused).
-- **The bills flow has not run.** Gateway/x402 purchasing is coded but `X402_VENDOR_URL` is unset, so no purchase is on record.
 - **The brain cannot yet check a claimed issue.** A made-up bug report was paid 0.10 USDC in testing. The contract capped it, which is the thesis, but the agent should see the facts: a GitHub lookup for cited Lattice issues is next.
 - **The agent signs with a server-held key, not a Circle developer-controlled wallet.** The existing entity secret could not be recovered in time; the diamond bounds that key exactly as before.
 - **Lattice deviations.** `GovernedVault` (an ERC-4626 share vault with no payout path) and `SpendingLimit` (an ERC-6900 module, not installable on a diamond) were dropped; per-tx caps live in `TreasuryPolicyFacet`, daily budgets in `RateLimiter` (a rolling bucket, not a calendar day). `RateLimiter.consume` is unguarded upstream, so it is deliberately not cut. Lattice's `emergencyResume` is admin-only (a 48 h round here), so Talos adds an owner-only `resume()` that clears only the stop flag and the velocity counter.
