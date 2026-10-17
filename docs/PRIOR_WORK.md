@@ -8,14 +8,16 @@
 ## Built during Tameion (from tag `tameion-baseline`, 16 Oct 2026)
 - TalosVault diamond composition and parameters; DecisionLedger facet; tiered payee policy; escalation queue.
 - Treasury operator agent (prompt, tools, loop, rationale stream).
-- Arena: toll, free tier, honeypot tier, bounty path, anti-abuse.
-- Evidence page and traction reporting.
-- Mainnet deployment, verification, live operations log.
+- Arena: free tier, honeypot tier, anti-abuse, share receipts. (Paid toll: not built.)
+- Evidence and Policy pages, hourly operator cycle, bounty inheritance from Lattice issues.
+- Testnet deployment, Sourcify verification, on-chain proofs. (Mainnet: pending.)
 
 ## Reused files (exact list)
 | File in this repo | Origin | Change |
 | --- | --- | --- |
 | `apps/web/lib/brain/llm.ts` | engye `lib/llm.ts` (pre-Tameion) | single role; strict JSON schema on gpt-oss; env names |
 | `apps/web/lib/signers/send.ts` | engye's server-held EOA signer pattern (pre-Tameion) | Supabase-backed nonces for concurrent serverless senders |
+| `apps/web/lib/circleWallet.ts` | engye `lib/circleWallet.ts` (pre-Tameion) | passkey register/login/derive only; message signing for the free tier; chain from `NEXT_PUBLIC_CHAIN` |
+| `apps/web/app/passkey-store.ts` | engye `components/wallet/passkey.tsx` (pre-Tameion) | plain functions instead of a React context; Talos storage key |
 
 Any Lattice facet patched during the event gets a labelled upstream PR and a line here.
