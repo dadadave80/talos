@@ -11,18 +11,20 @@ export type MergedPr = {
   mergedAt: string;
   author: { login: string } | null;
   labels: { nodes: Label[] };
-  closingIssuesReferences: { nodes: { url: string; labels: { nodes: Label[] } }[] };
+  closingIssuesReferences: { nodes: { url: string; repository: { nameWithOwner: string }; labels: { nodes: Label[] } }[] };
 };
 export type Bounty = { number: number; url: string; author: string; usdc: string; ref: string };
 
 const amount = (labels: Label[]) => labels.map((l) => /^bounty:(\d+(?:\.\d+)?)$/.exec(l.name)?.[1]).find(Boolean);
 
-export function bountyOf(pr: MergedPr): Bounty | null {
+export function bountyOf(pr: MergedPr, repo: string): Bounty | null {
   if (!pr.author) return null;
   const base = { number: pr.number, url: pr.url, author: pr.author.login };
   const own = amount(pr.labels.nodes);
   if (own) return { ...base, usdc: own, ref: pr.url };
   for (const issue of pr.closingIssuesReferences.nodes) {
+    // "Closes other/repo#1" is legal on GitHub; only issues in this repo, labelled by its maintainers, count.
+    if (issue.repository.nameWithOwner.toLowerCase() !== repo.toLowerCase()) continue;
     const inherited = amount(issue.labels.nodes);
     if (inherited) return { ...base, usdc: inherited, ref: issue.url };
   }
@@ -35,7 +37,7 @@ const QUERY = `query($owner: String!, $name: String!) {
       nodes {
         number url mergedAt author { login }
         labels(first: 20) { nodes { name } }
-        closingIssuesReferences(first: 5) { nodes { url labels(first: 20) { nodes { name } } } }
+        closingIssuesReferences(first: 5) { nodes { url repository { nameWithOwner } labels(first: 20) { nodes { name } } } }
       }
     }
   }
@@ -53,5 +55,5 @@ export async function bountyPrs(repo: string): Promise<Bounty[]> {
   const body = await res.json().catch(() => null);
   if (!res.ok || body?.errors) throw new Error(`github ${res.status} ${JSON.stringify(body?.errors ?? "").slice(0, 200)}`);
   const prs: MergedPr[] = body.data.repository.pullRequests.nodes;
-  return prs.map(bountyOf).filter((b): b is Bounty => b !== null);
+  return prs.map((pr) => bountyOf(pr, repo)).filter((b): b is Bounty => b !== null);
 }
