@@ -21,7 +21,7 @@ See [docs/PRIOR_WORK.md](docs/PRIOR_WORK.md).
 - **Two Lattice facets were dropped.** `GovernedVault` is an ERC-4626 share vault with no payout path. `SpendingLimit` is an ERC-6900 account module and cannot be installed on a diamond. The diamond holds USDC directly. `pay` and `approveQueued` are the only exits; a test asserts the loupe exposes no other path.
 - **Agent authority comes from Lattice's `SessionKey` facet.** Two keys are registered at init, both expiring 2026-11-30: the agent's Circle developer-controlled EOA (`commit`, `pay`, `queue`) and a hot key with `commit` only, so REFUSE commits never wait on the MPC signer. A table-driven test checks the access control of every selector cut into the diamond. Per-tx caps live in `TreasuryPolicyFacet`. Daily budgets come from `RateLimiter`, a rolling bucket rather than a calendar day.
 - **The owner can resume instantly.** Lattice makes `emergencyResume` admin-only, which here would mean a 48h round. Talos adds an owner-only `resume()` that clears only the EmergencyStop flag and the velocity counter (RateLimiter budgets are untouched) and emits `Resumed`. The owner can unpause instantly. Nobody can raise a cap instantly.
-- **Payment logic is unit-tested against a mock token; the real-USDC path runs under Arc Foundry.** Stock Foundry cannot execute Arc's USDC precompile. `test/ArcUsdc.t.sol` forks Arc testnet and pays real USDC under `arc-forge`; it is skipped under plain `forge`. Testnet and mainnet transactions are recorded in docs/ADDRESSES.md.
+- **Payment logic is unit-tested against a mock token; the real-USDC path runs under Arc Foundry.** Stock Foundry cannot execute Arc's USDC precompile. `test/ArcUsdc.t.sol` forks Arc testnet and pays real USDC under `arc-forge --network arc` (Arc Foundry v0.8.0-2, all pass); stock forge fails the same payment with `TransferFailed()`, so it is skipped there. Testnet and mainnet transactions are recorded in docs/ADDRESSES.md.
 - **Decision hashes bind chain and deployment.** The preimage is `abi.encode(chainid, vault, attemptId, payee, amount, tier, keccak(reason), modelId, keccak(prompt))`; the contract stores only the hash, and the shared vector is checked in Solidity and TypeScript.
 - `RateLimiter.consume` is unguarded upstream, so it is deliberately not cut.
 - **Hosting:** the public launch runs on Vercel's Hobby plan; tolls are revenue to an open-source treasury, so Pro is the correct plan under Vercel's terms. The build is identical.
@@ -36,6 +36,8 @@ See [docs/PRIOR_WORK.md](docs/PRIOR_WORK.md).
 ## Build
 ```sh
 git clone --recursive <repo> && cd talos/contracts && forge build && forge test
+# real Arc USDC (Arc Foundry: foundryup -r circlefin/arc-foundry -b main, binaries linked as arc-forge)
+ARC_FORGE=1 ARC_TESTNET_RPC=https://rpc.testnet.arc.io arc-forge test --network arc --mc ArcUsdc
 ```
 
 MIT.

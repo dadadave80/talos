@@ -16,8 +16,9 @@ interface IERC20 {
 }
 
 /// @notice Payments against Arc's real USDC (ERC-20 view of the native balance). Stock revm lacks Arc's USDC
-///         precompile, so these run only under Arc Foundry: `ARC_FORGE=1 arc-forge test --mc ArcUsdc`
-///         (forks arc-testnet). Under plain forge they are skipped.
+///         precompile, so these run only under Arc Foundry (forks arc-testnet):
+///         `ARC_FORGE=1 ARC_TESTNET_RPC=https://rpc.testnet.arc.io arc-forge test --network arc --mc ArcUsdc`
+///         Under plain forge they are skipped; forced to run there, test_realUsdcPay fails with TransferFailed().
 contract ArcUsdcTest is Test {
     uint256 constant USDC = 1e6;
     IERC20 constant usdc = IERC20(TalosParams.ARC_USDC);
