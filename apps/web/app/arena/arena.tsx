@@ -209,6 +209,8 @@ export function Arena({ initial }: { initial: Snap }) {
 
   const sendLabel = !signedIn ? "Sign in and send" : pending ? "Sending…" : cooldown > 0 || outOfFree ? "Send" : `Send · free (${left ?? FREE_PER_WALLET} left)`;
   const canSend = signedIn && !pending && cooldown === 0 && !outOfFree && !!draft.trim();
+  // TODO(question): the brief wants the live dot tied to an open SSE connection; the arena polls /api/snapshot every
+  // 15 s (no SSE endpoint exists), so "live" means the last read succeeded under a minute ago.
   const fresh = !feedDown && now - snap.at < 60_000;
   const banner = snap.stopped
     ? { tag: "Paused", c: "border-queue text-queue", t: "The owner paused payouts. Attempts are still recorded on-chain." }

@@ -103,6 +103,7 @@ export default async function Home() {
       {pay && steps && (
         <section id="replay" aria-labelledby="replay-h" className="mx-6 flex flex-col gap-6 border-t border-ink pb-16 pt-6 lg:mx-20 lg:max-w-[52rem] lg:pb-24">
           <h2 id="replay-h" className={h2}>One verdict, replayed</h2>
+          {/* TODO(question): the brief says "Open the full receipt" links to Evidence; it links to the receipt itself (/v/id), which is the full receipt. */}
           <VerdictReplay steps={steps} stamp={`Pay ${f2(pay.amount_usdc ?? 0)} USDC`} tone="text-pay border-pay" receiptHref={`/v/${pay.id}`} />
         </section>
       )}
