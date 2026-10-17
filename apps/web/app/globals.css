@@ -117,3 +117,26 @@
   *, *::before, *::after { animation-duration: 0ms !important; transition-duration: 0ms !important; }
   button:active, .press:active { transform: none; }
 }
+
+/* Landing diagrams: 1 px strokes in the current colour, labels in the UI faces, draw-on through pathLength="1". */
+.path-fig, .bounds-fig { color: var(--ink-2); font-family: var(--font-sans); }
+.path-fig .lbl, .bounds-fig .lbl { font-size: 13px; font-weight: 500; fill: var(--ink); }
+.path-fig .sub, .bounds-fig .sub { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-3); }
+.path-fig .draw, .bounds-fig .draw { fill: none; stroke: currentColor; stroke-width: 1; stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 800ms cubic-bezier(0.23, 1, 0.32, 1), opacity 300ms; }
+.path-fig .drawn, .bounds-fig.drawn .draw { stroke-dashoffset: 0; }
+.path-fig .faint { opacity: 0.45; }
+.path-fig a { color: inherit; }
+.path-fig .out .lbl { fill: var(--ink-3); transition: fill 300ms; }
+.path-fig .lit-pay .lbl { fill: var(--pay); }
+.path-fig .lit-refuse .lbl { fill: var(--refuse); }
+.path-fig .lit-queue .lbl { fill: var(--queue); }
+.path-fig .lit-pay circle, .path-fig .lit-refuse circle, .path-fig .lit-queue circle { fill: currentColor; }
+.path-fig .lit-pay { color: var(--pay); } .path-fig .lit-refuse { color: var(--refuse); } .path-fig .lit-queue { color: var(--queue); }
+.bounds-fig .part { cursor: pointer; outline: none; }
+.bounds-fig .part.on { color: var(--bronze); }
+.bounds-fig .part.on .lbl { fill: var(--bronze); }
+.bounds-fig .part:focus-visible .lbl { text-decoration: underline; }
+@media (prefers-reduced-motion: reduce) {
+  .path-fig .draw, .bounds-fig .draw { stroke-dashoffset: 0; }
+  .path-fig .faint { opacity: 1; }
+}

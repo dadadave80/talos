@@ -479,7 +479,7 @@ export function Arena({ initial }: { initial: Snap }) {
                       ? "The velocity breaker tripped; payouts resume when the owner resets it."
                       : "Today's budget is spent; it refills over the rolling day."}
               </p>
-              <Link href="/#follow" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end →</Link>
+              <Link href="/#replay" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end →</Link>
             </div>
           )}
 

@@ -1,70 +1,62 @@
 import Link from "next/link";
+import { formatUnits } from "viem";
+import { explorer } from "@/lib/chain";
+import { policy } from "@/lib/policy";
 import { network } from "@/lib/share";
 import { snapshot } from "@/lib/snapshot";
-import { FollowOne } from "./follow-one";
+import { BlastRadius, meterFor } from "./blast-radius";
+import { PathOfAMessage } from "./landing/path-of-a-message";
+import { loadTraces, TIERS } from "./landing/traces";
+import { VerdictReplay, type Step } from "./landing/verdict-replay";
+import { WhatBoundsIt } from "./landing/what-bounds-it";
 
 export const revalidate = 15;
 
-// The landing page tells the story; the arena (/arena) is where you make your case. Numbers are read from the vault
-// and the ledger at the block shown, never typed in.
+// The landing page: the thesis and three diagrams. Every number is read from the vault or the ledger at the block
+// shown; the replay is a real team-test attempt. The arena (/arena) is where you make your case.
 
-const f2 = (v: string | number) => Number(v).toFixed(2);
-const ago = (ts: string, now: number) => {
-  const m = Math.max(0, Math.round((now - new Date(ts).getTime()) / 60_000));
-  return m < 1 ? "just now" : m < 60 ? `${m}m ago` : m < 1440 ? `${Math.round(m / 60)}h ago` : `${Math.round(m / 1440)}d ago`;
-};
-
-const JOBS: [string, string, string, string][] = [
-  [
-    "Pays contributors",
-    "A maintainer labels a Lattice issue bounty:N. When the pull request that closes it merges, the hourly cycle pays its author once, from a capped contributor budget.",
-    "Operator log",
-    "/evidence#operator",
-  ],
-  [
-    "Pays its own bills",
-    "Once a day it moves a 1 USDC float into Circle Gateway. Every cycle it buys an Arc RPC read over x402, for 0.0001 USDC.",
-    "Operator log",
-    "/evidence#operator",
-  ],
-  [
-    "Refuses everything else",
-    "Anyone can sign a message and ask it for money. Refusals are committed on-chain like everything else, so what it declined is as public as what it paid.",
-    "Enter the arena",
-    "/arena",
-  ],
-];
-
-const BOUND: [string, string][] = [
-  ["Decide", "The model reads the request and returns pay, queue or refuse, with a reason."],
-  ["Commit", "The decision hash goes to Arc first. pay() reverts without a fresh, matching commitment."],
-  ["Act", "Only then does money move: inside per-tier caps, a rolling daily budget and a velocity breaker."],
-];
+const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+const f2 = (v: string | number | bigint) => (typeof v === "bigint" ? Number(formatUnits(v, 6)) : Number(v)).toFixed(2);
+const blk = (n: number | null) => (n ? `block ${n.toLocaleString("en-US")} · ` : "");
 
 export default async function Home() {
-  const s = await snapshot();
-  const now = s.at;
-  const perTx = f2(s.discretionary.perTx);
+  const [s, traces, pol] = await Promise.all([snapshot(), loadTraces().catch(() => null), policy().catch(() => null)]);
+  const m = meterFor(s);
   const untaken = Number(s.paidToAttackers) === 0 && Number(s.contributorsPaid) === 0;
-  const halted = s.stopped || s.tripped || Number(s.discretionary.remaining) <= 0;
-  const live: [string, React.ReactNode, string][] = [
-    ["Vault", <>{f2(s.vaultUsdc)} <span className="text-sm text-ink-3">USDC</span></>, `${s.explorer}/address/${s.vault}`],
-    ["Most one message can take", <>{halted ? "0.00" : f2(Math.min(Number(s.discretionary.perTx), Number(s.discretionary.remaining)))} <span className="text-sm text-ink-3">USDC</span></>, "/policy#caps"],
-    ["Discretionary left today", <>{f2(s.discretionary.remaining)} / {f2(s.discretionary.cap)}</>, "/policy#caps"],
+  const delayHours = Math.round((pol?.timelockDelaySeconds ?? 172_800) / 3600);
+  const pay = traces?.pay ?? null;
+  const refuse = traces?.refuse ?? null;
+  const tier = pay ? TIERS.indexOf(pay.tier as (typeof TIERS)[number]) : -1;
+  const p = traces?.params;
+  const steps: Step[] | null = pay && [
+    { k: "Message", text: pay.message_excerpt ? `“${pay.message_excerpt}”` : "Message not stored." },
+    { k: "Verdict", text: `Pay ${f2(pay.amount_usdc ?? 0)} USDC · ${pay.model ?? "model not recorded"}`, mono: true },
+    { k: "Reason", text: pay.reason },
+    { k: "Commit", text: `${blk(pay.commit_block)}${short(pay.commit_tx!)}`, href: `${explorer}/tx/${pay.commit_tx}`, mono: true },
+    {
+      k: "Contract",
+      text: tier >= 0 && p ? `asked ${f2(pay.amount_usdc ?? 0)} · cap ${f2(p.perTxCap[tier])} per message · ${f2(p.dailyCap[tier])} per rolling day` : `asked ${f2(pay.amount_usdc ?? 0)} · inside the vault's caps`,
+      href: "/policy#caps",
+      mono: true,
+    },
+    { k: "Settle", text: `paid ${f2(pay.amount_usdc ?? 0)} USDC → ${short(pay.wallet)} · ${blk(pay.pay_block)}${short(pay.pay_tx!)}`, href: `${explorer}/tx/${pay.pay_tx}`, mono: true },
   ];
+  const proof: [string, string, string][] = [
+    ["Attempts", String(s.attempts), "/evidence#attempts"],
+    ["Wallets", String(s.wallets), "/evidence#attempts"],
+    ["Refused", String(s.refusals), "/evidence?verdict=REFUSE#attempts"],
+    ["Paid", `${f2(s.paidToAttackers)} USDC`, "/evidence?verdict=PAY#attempts"],
+  ];
+  const h2 = "font-display text-[28px] font-medium tracking-[-0.01em] lg:text-4xl";
 
   return (
     <main id="main" className="flex flex-col">
-      <section className="grid grid-cols-1 gap-10 px-6 pb-16 pt-12 lg:grid-cols-12 lg:gap-x-6 lg:px-20 lg:pb-24 lg:pt-20">
+      <section className="grid grid-cols-1 gap-10 px-6 pb-16 pt-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20 lg:pb-24 lg:pt-20">
         <div className="flex flex-col gap-8 lg:col-span-8">
           <h1 className="font-display text-[40px] font-medium leading-[1.08] tracking-[-0.02em] text-balance lg:text-[60px] lg:leading-[1.04]">
             Talos runs an open-source project&apos;s treasury on {network}.{" "}
             <span className="text-bronze">Try to rob it. The most you can take is a contract parameter.</span>
           </h1>
-          <p className="max-w-[60ch] text-lg leading-[30px] text-ink-2 text-pretty">
-            It pays Lattice contributors for merged pull requests, pays its own bills, and refuses everything else. Each
-            decision is written to Arc before any money moves, and its limits sit in a contract it cannot change.
-          </p>
           <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:gap-7">
             <Link href="/arena" className="press flex h-12 items-center bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
               Enter the arena
@@ -73,76 +65,65 @@ export default async function Home() {
               See every transaction
             </Link>
           </div>
-          <span className="text-[13px] text-ink-3">Five free attempts a day with a passkey or any browser wallet. You only sign a message.</span>
         </div>
-
-        <div className="flex flex-col self-end lg:col-span-4">
-          <span className="flex items-center gap-2 pb-2 font-mono text-xs tabular-nums text-ink-3">
-            <span aria-hidden="true" className="size-1.5 bg-pay" />
-            As of block {Number(s.block).toLocaleString("en-US")}
-          </span>
-          <div className="flex flex-col">
-            {live.map(([l, v, href]) => (
-              <Link key={l} href={href} className="flex items-baseline justify-between gap-4 border-t border-rule py-3 text-ink hover:text-ink">
-                <span className="text-sm text-ink-2">{l}</span>
-                <span className="font-display text-2xl font-medium tabular-nums">{v}</span>
-              </Link>
-            ))}
-            <Link href="/evidence#operator" className="flex flex-col gap-1 border-y border-rule py-3 text-ink hover:text-ink">
-              <span className="text-sm text-ink-2">Operator</span>
-              <span className="text-[15px] leading-[22px]">
-                {s.lastCycle ? `Last cycle ${ago(s.lastCycle.ts, now)} · ${s.lastCycle.summary}` : "Runs hourly at :00 UTC"}
-              </span>
-            </Link>
-          </div>
+        <div className="flex flex-col gap-2 self-end lg:col-span-4">
+          <span className="font-mono text-xs tabular-nums text-ink-3">As of block {Number(s.block).toLocaleString("en-US")}</span>
+          <BlastRadius m={m} big />
         </div>
       </section>
 
-      <section aria-labelledby="jobs" className="mx-6 flex flex-col pb-16 lg:mx-20 lg:pb-24">
-        <h2 id="jobs" className="border-b border-ink pb-3 font-display text-[28px] font-medium tracking-[-0.01em] lg:text-4xl">
-          Three jobs, one brain, one set of tools.
-        </h2>
-        {JOBS.map(([h, t, cta, href]) => (
-          <div key={h} className="grid grid-cols-1 gap-2 border-b border-rule py-6 lg:grid-cols-12 lg:gap-6">
-            <h3 className="font-display text-2xl font-medium lg:col-span-4">{h}</h3>
-            <p className="max-w-[60ch] text-[17px] leading-7 text-ink-2 lg:col-span-6">{t}</p>
-            <Link href={href} className="flex min-h-11 items-center text-[15px] font-medium lg:col-span-2 lg:justify-end lg:self-start">
-              {cta} →
-            </Link>
-          </div>
-        ))}
+      <section aria-labelledby="path" className="mx-6 flex flex-col gap-6 border-t border-ink pb-16 pt-6 lg:mx-20 lg:pb-24">
+        <h2 id="path" className={h2}>The path of a message</h2>
+        <PathOfAMessage
+          perTx={m.perTx}
+          cap={m.cap}
+          delayHours={delayHours}
+          commitUrl={pay ? `${explorer}/tx/${pay.commit_tx}` : null}
+          payUrl={pay?.pay_tx ? `${explorer}/tx/${pay.pay_tx}` : null}
+          refuseUrl={refuse ? `/v/${refuse.id}` : null}
+        />
       </section>
 
-      <section aria-labelledby="bound" className="mx-6 flex flex-col gap-8 pb-16 lg:mx-20 lg:pb-24">
-        <div className="flex flex-col gap-3 lg:max-w-[48rem]">
-          <h2 id="bound" className="font-display text-[28px] font-medium tracking-[-0.01em] lg:text-4xl">Decide, commit, then act.</h2>
-          <p className="text-[17px] leading-7 text-ink-2">
-            Every action, from a bounty to a refusal, follows the same order, and the contract enforces it. Above {perTx} USDC a
-            human must sign; changing any cap, key or allowlist takes a public 48-hour timelock.
-          </p>
-        </div>
-        <ol className="grid grid-cols-1 border-t border-ink lg:grid-cols-3">
-          {BOUND.map(([h, t], i) => (
-            <li key={h} className={`flex flex-col gap-2 border-b border-rule py-5 lg:border-b-0 lg:py-6 ${i ? "lg:border-l lg:pl-6" : ""} ${i < 2 ? "lg:pr-6" : ""}`}>
-              <span className="font-display text-2xl font-medium">{h}</span>
-              <span className="text-[15px] leading-6 text-ink-2">{t}</span>
-            </li>
+      {pol && (
+        <section aria-labelledby="bounds" className="mx-6 flex flex-col gap-6 border-t border-ink pb-16 pt-6 lg:mx-20 lg:pb-24">
+          <h2 id="bounds" className={h2}>What bounds it</h2>
+          <WhatBoundsIt
+            tiers={pol.tiers}
+            owner={pol.owner}
+            keys={pol.agentKeys}
+            delayHours={delayHours}
+            vault={pol.vault}
+            vaultUsdc={f2(s.vaultUsdc)}
+            explorer={explorer}
+            stopped={pol.stopped}
+          />
+        </section>
+      )}
+
+      {pay && steps && (
+        <section id="replay" aria-labelledby="replay-h" className="mx-6 flex flex-col gap-6 border-t border-ink pb-16 pt-6 lg:mx-20 lg:max-w-[52rem] lg:pb-24">
+          <h2 id="replay-h" className={h2}>One verdict, replayed</h2>
+          <VerdictReplay steps={steps} stamp={`Pay ${f2(pay.amount_usdc ?? 0)} USDC`} tone="text-pay border-pay" receiptHref={`/v/${pay.id}`} />
+        </section>
+      )}
+
+      <section aria-label="Live record" className="mx-6 flex flex-col gap-8 border-t border-ink pb-16 pt-6 lg:mx-20 lg:pb-24">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-4">
+          {proof.map(([l, v, href]) => (
+            <Link key={l} href={href} className="flex flex-col gap-1 border-t border-rule py-3 text-ink hover:text-ink">
+              <span className="text-[13px] text-ink-2">{l} · external wallets</span>
+              <span className="font-display text-[28px] font-medium tabular-nums lg:text-[36px]">{v}</span>
+            </Link>
           ))}
-        </ol>
-        <Link href="/policy" className="flex min-h-11 items-center self-start text-[15px] font-medium">Read the policy, read live from the vault →</Link>
-      </section>
-
-      <div id="follow" className="mx-6 pb-16 lg:mx-20 lg:max-w-[52rem] lg:pb-24">
-        <FollowOne />
-      </div>
-
-      <section className="mx-6 flex flex-col items-start gap-6 border-t border-ink py-14 lg:mx-20 lg:py-20">
-        <p className="max-w-[24ch] font-display text-[32px] font-medium leading-[1.1] tracking-[-0.01em] text-balance lg:text-5xl">
-          {untaken ? `${perTx} USDC is on the table. Nobody outside the team has taken it yet.` : "Make your case."}
-        </p>
-        <Link href="/arena" className="press flex h-12 items-center bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
-          Enter the arena
-        </Link>
+        </div>
+        <div className="flex flex-col items-start gap-6">
+          <p className="max-w-[24ch] font-display text-[32px] font-medium leading-[1.1] tracking-[-0.01em] text-balance lg:text-5xl">
+            {m.num} USDC is on the table.{untaken && " Nobody outside the team has taken it yet."}
+          </p>
+          <Link href="/arena" className="press flex h-12 items-center bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
+            Enter the arena
+          </Link>
+        </div>
       </section>
     </main>
   );

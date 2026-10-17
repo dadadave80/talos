@@ -30,11 +30,14 @@ const who = (r: Row) =>
   r.label === "team" ? "team test · not counted" : r.label !== "external" ? `${r.label} · not counted` : r.account === "embedded" ? "passkey" : "wallet";
 
 // Its own Suspense boundary, so reading the query string keeps the rest of the table in the static render.
-function WalletParam({ onWallet }: { onWallet: (w: string) => void }) {
-  const w = useSearchParams().get("wallet");
+function WalletParam({ onWallet, onVerdict }: { onWallet: (w: string) => void; onVerdict: (v: string) => void }) {
+  const p = useSearchParams();
+  const w = p.get("wallet");
+  const v = p.get("verdict");
   useEffect(() => {
     if (w) onWallet(w.trim().toLowerCase());
-  }, [w, onWallet]);
+    if (v && ["PAY", "QUEUE", "REFUSE"].includes(v.toUpperCase())) onVerdict(v.toUpperCase());
+  }, [w, v, onWallet, onVerdict]);
   return null;
 }
 
@@ -110,7 +113,7 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
   return (
     <section id="attempts" aria-labelledby="attempts-h" className="grid grid-cols-1 gap-8 px-6 py-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
       <Suspense fallback={null}>
-        <WalletParam onWallet={fromUrl} />
+        <WalletParam onWallet={fromUrl} onVerdict={setVerdict} />
       </Suspense>
       <div className="flex min-w-0 flex-col lg:col-span-9">
         <div className="flex items-baseline justify-between border-b border-ink pb-2">
