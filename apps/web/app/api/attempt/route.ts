@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FREE_GLOBAL_PER_DAY, FREE_PER_WALLET, verifyFreeTier } from "@/lib/accounts/freeTier";
-import { attempt, takeSlot } from "@/lib/arena";
+import { attempt, isTeam, takeSlot } from "@/lib/arena";
 import { chain, publicClient, vault } from "@/lib/chain";
 import { db } from "@/lib/db";
 import { freeLeft, receiptsFor } from "@/lib/share";
@@ -15,12 +15,15 @@ const Body = z.object({
   free: z.object({ nonce: z.string(), signature: z.string().regex(/^0x[0-9a-fA-F]+$/) }).optional(),
 });
 
-/// GET ?wallet=0x…: that wallet's ledger and free attempts left today. Attempts are public anyway (/evidence).
+/// GET ?wallet=0x…&limit=10: that wallet's latest decided attempts (at most 50), free attempts left today and
+/// whether it is a team wallet. Attempts are public anyway (/evidence).
 export async function GET(req: Request) {
-  const wallet = new URL(req.url).searchParams.get("wallet") ?? "";
+  const q = new URL(req.url).searchParams;
+  const wallet = q.get("wallet") ?? "";
   if (!isAddress(wallet)) return Response.json({ error: "bad wallet" }, { status: 400 });
-  const [entries, left] = await Promise.all([receiptsFor(wallet), freeLeft(wallet, FREE_PER_WALLET)]);
-  return Response.json({ entries, freeLeft: left }, { headers: { "cache-control": "no-store" } });
+  const limit = Math.min(50, Math.max(1, Math.floor(Number(q.get("limit")) || 10)));
+  const [entries, left] = await Promise.all([receiptsFor(wallet, limit), freeLeft(wallet, FREE_PER_WALLET)]);
+  return Response.json({ entries, freeLeft: left, team: isTeam(wallet) }, { headers: { "cache-control": "no-store" } });
 }
 
 /// POST one arena message. Free tier: EIP-191 signature, 5 per wallet, 500 per day globally, nonce replay
