@@ -25,6 +25,7 @@ function ogTitle(r: Receipt) {
     r.verdict === "REFUSE" ? `Talos refused ${n}`
     : r.verdict === "QUEUE" ? `Talos queued ${n} for its owner`
     : r.pay_tx && !r.note ? `Talos paid ${amount} USDC on ${n}`
+    : r.note?.startsWith("pay pending") ? `Talos sent a payment on ${n}; receipt not read yet`
     : `Talos said pay on ${n}; nothing moved`;
   return r.wallet_label === "external" ? t : `${t} · team test, not counted`;
 }
@@ -33,7 +34,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { id } = await params;
   const r = await get(id);
   if (!r) return { title: "Not found", robots: { index: false }, openGraph: { images: ["/opengraph-image"] }, twitter: { images: ["/opengraph-image"] } };
-  const description = r.reason.includes("model_unavailable") ? "Model unavailable; the refusal was recorded on Arc." : firstSentence(r.reason);
+  const description = r.model === "none" ? "Model unavailable; the refusal was recorded on Arc." : firstSentence(r.reason);
   // A page's openGraph replaces the layout's, so siteName comes along; the image is ./opengraph-image.tsx.
   return {
     title: `${word[r.verdict]} · attempt ${r.index}`,

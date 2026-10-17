@@ -18,7 +18,6 @@ export default async function EvidencePage() {
   const e = await evidence();
   const c = e.counters;
   const ext = (t: string) => c.payments.find((p) => p.tier === t)?.external.usdc ?? "0";
-  const extAttempts = e.attempts.filter((a) => a.wallet_label === "external" && a.commit_tx);
   const logs = `${explorer}/address/${e.vault}?tab=logs`;
   const transfers = `${explorer}/address/${e.vault}?tab=token_transfers`;
   // No deposit events exist for the USDC precompile, so funding is derived from the other three lines; its row opens
@@ -31,7 +30,7 @@ export default async function EvidencePage() {
   ];
   const t = c.team;
   const band: [string, string, string, string][] = [
-    ["Attempts", String(c.attempts), `paid ${extAttempts.filter((a) => a.toll_kind === "facilitator").length} · free ${extAttempts.filter((a) => a.toll_kind === "free").length}`, "commit logs"],
+    ["Attempts", String(c.attempts), `paid ${c.attemptsByToll.paid} · free ${c.attemptsByToll.free}`, "commit logs"],
     ["Distinct wallets", String(c.externalWallets.total), `passkey ${c.externalWallets.embedded} · wallet ${c.externalWallets.eoa}`, "commit logs"],
     ["Refusals", String(c.refusals), "", "verdict logs"],
     ["Escalations", String(c.escalations.total), `approved ${c.escalations.approved} · rejected ${c.escalations.rejected} · pending ${c.escalations.total - c.escalations.approved - c.escalations.rejected}`, "queued()"],
@@ -60,7 +59,8 @@ export default async function EvidencePage() {
         // o.ref is a Gateway settlement id, not an Arc tx: plain text, never an explorer link.
         return { ts: o.ts, k: "Bill", what: `${d.seller ?? "Seller"} ${d.item ?? "resource"} over x402${d.result ? ` · ${String(d.result)}` : ""}`, href: null, link: o.ref ? `settlement ${String(o.ref).slice(0, 12)}…` : "—", amt: d.usdc != null ? Number(d.usdc).toFixed(4) : "—" };
       case "vendor-float":
-        return { ts: o.ts, k: "Float", what: "Daily ops float to the agent (VENDOR tier)", href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: f2(Number(d.usdc ?? 1)) };
+        // A reverted float is still logged, but nothing moved.
+        return { ts: o.ts, k: "Float", what: `Daily ops float to the agent (VENDOR tier)${d.failed ? " · reverted, nothing moved" : d.pending ? " · sent, receipt not read yet" : ""}`, href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: d.failed ? "0.00" : f2(Number(d.usdc ?? 1)) };
       case "vendor-deposit":
         return { ts: o.ts, k: "Gateway", what: "Ops float deposited into Circle Gateway", href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: f2(Number(d.usdc ?? 1)) };
       case "cycle":
@@ -96,6 +96,10 @@ export default async function EvidencePage() {
               <span className="font-display text-2xl font-medium tabular-nums">{v}</span>
             </a>
           ))}
+          <a href={logs} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 pb-2.5 pl-4 text-ink hover:text-ink">
+            <span className="text-[13px] text-ink-3">of which Talos&apos;s own bills (ops float)</span>
+            <span className="font-mono text-sm tabular-nums text-ink-2">{f2(c.opsFloat.usdc)}</span>
+          </a>
           <a href={`${explorer}/address/${e.vault}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-y-2 border-ink py-3 text-ink hover:text-ink">
             <span className="text-[15px] font-medium">Vault balance, carried forward</span>
             <span className="font-display text-[32px] font-medium tabular-nums">{f2(c.vaultUsdc)}</span>
@@ -120,6 +124,12 @@ export default async function EvidencePage() {
           <p className="pt-3 text-[13px] leading-5 text-ink-3">
             Team tests, not counted: {count(t.attempts, "attempt")} · {t.refused} refused
             {t.queued ? ` · ${t.queued} queued` : ""} · {t.paid} paid{t.paid ? ` ${f2(t.paidUsdc)} USDC` : ""}
+            {t.bounties.count ? (
+              <>
+                {" · "}
+                <a href={t.bounties.txs.length === 1 ? txUrl(t.bounties.txs[0]) : "#operator"}>{count(t.bounties.count, "bounty payout")}</a> {f2(t.bounties.usdc)} USDC
+              </>
+            ) : null}
             {t.offArena?.count ? (
               <>
                 {" · "}

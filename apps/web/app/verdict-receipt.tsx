@@ -17,19 +17,26 @@ const tone = { PAY: "text-pay border-pay", QUEUE: "text-queue border-queue", REF
 const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
 const blk = (n: number) => Number(n).toLocaleString("en-US");
 
-/// The rule that held a REFUSE or QUEUE, read only from deterministic signals: the [contract: …] tag the server
-/// appends after its precheck, the model_unavailable marker, else the verdict itself. The model's prose is never parsed.
+/// The tag the server appends last when its precheck turns a PAY into QUEUE or REFUSE: " [contract: …]". Only a tag
+/// at the very end counts; anything earlier is the model's prose.
+const serverTag = (r: Receipt) => r.reason.match(/ \[contract: ([^[\]]*)\]$/)?.[1] ?? "";
+
+/// The rule that held a REFUSE or QUEUE, read only from server-set signals: the model id ("none" when no model
+/// answered), the precheck tag read per verdict (QUEUE: a cap or the allowlist; REFUSE: the budget or a switch), else
+/// the verdict itself.
 function heldBy(r: Receipt): { rule: string; href: string } | null {
   if (r.verdict === "PAY") return null;
-  const tag = r.reason.match(/\[contract: ([^\]]*)\]/)?.[1] ?? "";
-  const cap = tag.match(/above the ([\d.]+) USDC tier cap/)?.[1];
-  if (cap) return { rule: `the ${Number(cap).toFixed(2)} USDC per-message cap`, href: "/policy#caps" };
+  if (r.model === "none") return { rule: "no model, no payment", href: "/policy#brain" };
+  const tag = serverTag(r);
+  if (r.verdict === "QUEUE") {
+    const cap = tag.match(/above the ([\d.]+) USDC tier cap/)?.[1];
+    if (cap) return { rule: `the ${Number(cap).toFixed(2)} USDC per-message cap`, href: "/policy#caps" };
+    if (tag.includes("not allowlisted")) return { rule: "this tier pays allowlisted wallets only", href: "/policy#payee" };
+    return { rule: "the owner queue: nothing moves until a human signs", href: "/policy#queue" };
+  }
   if (tag.includes("daily budget")) return { rule: "the rolling daily budget", href: "/policy#caps" };
-  if (tag.includes("not allowlisted")) return { rule: "this tier pays allowlisted wallets only", href: "/policy#payee" };
   if (tag.includes("velocity")) return { rule: "the velocity breaker", href: "/policy#switches" };
   if (tag.includes("paused")) return { rule: "the owner's emergency stop", href: "/policy#switches" };
-  if (r.reason.includes("model_unavailable")) return { rule: "no model, no payment", href: "/policy#brain" };
-  if (r.verdict === "QUEUE") return { rule: "the owner queue: nothing moves until a human signs", href: "/policy#queue" };
   return { rule: "Talos's instructions", href: "/policy#brain" };
 }
 
@@ -53,26 +60,30 @@ export function VerdictReceipt({ r, pending, arriving, page, explorer, perTx, ca
   const stamp = r.verdict === "PAY" ? `Pay ${amount ?? ""} USDC` : r.verdict === "QUEUE" ? `Queue ${amount ?? ""} USDC` : "Refuse";
   const commitFailed = r.note?.startsWith("commit failed");
   const payFailed = r.note?.startsWith("pay reverted");
+  // A pay tx sent whose receipt could not be read: it may have landed, so it never reads as reverted.
+  const payPending = r.note?.match(/^pay pending: (0x[0-9a-fA-F]{64})/)?.[1];
   const rows: Row[] = [
     r.commit_tx ? { k: "Commit", v: `${short(r.commit_tx)}${r.commit_block ? ` · block ${blk(r.commit_block)}` : ""}`, s: "landed", href: tx(r.commit_tx) } : { k: "Commit", v: commitFailed ? "commit failed" : "not committed", s: "fail" },
     { k: "Verdict", v: r.verdict === "REFUSE" ? "Refuse" : `${r.verdict === "PAY" ? "Pay" : "Queue"} ${amount ?? ""}`, s: r.commit_tx ? "landed" : "none" },
     r.verdict === "PAY"
       ? r.pay_tx && !payFailed
         ? { k: "Settle", v: `paid ${amount} USDC → ${short(r.wallet)} · ${short(r.pay_tx)}`, s: "landed", href: tx(r.pay_tx) }
-        : { k: "Settle", v: "pay reverted, nothing moved", s: "fail" }
+        : payPending
+          ? { k: "Settle", v: `pay sent · ${short(payPending)} · receipt not read yet`, s: "pending", href: tx(payPending) }
+          : { k: "Settle", v: "pay reverted, nothing moved", s: "fail" }
       : r.verdict === "QUEUE"
         ? { k: "Queue", v: "awaiting owner", s: "none" }
         : { k: "Settle", v: "no money moved", s: "none" },
   ];
-  const caption = r.reason.includes("model_unavailable")
+  const caption = r.model === "none"
     ? { t: "Model unavailable; refusal recorded on-chain.", muted: true }
     : commitFailed
       ? { t: "The commit did not land, so no verdict is on-chain and nothing moved.", muted: false }
       : payFailed
         ? { t: "The payment reverted on-chain; nothing moved.", muted: false }
         : null;
-  const contractRead = r.verdict !== "REFUSE" || r.reason.includes("[contract:");
-  const moved = r.verdict === "QUEUE" ? `${amount ?? "0.00"} USDC` : r.verdict === "PAY" && !payFailed ? `${amount} USDC` : "0.00 USDC";
+  const contractRead = r.verdict !== "REFUSE" || !!serverTag(r);
+  const moved = r.verdict === "QUEUE" ? `${amount ?? "0.00"} USDC` : r.verdict === "PAY" && r.pay_tx && !payFailed ? `${amount} USDC` : payPending ? "unconfirmed" : "0.00 USDC";
   const held = heldBy(r);
 
   return (

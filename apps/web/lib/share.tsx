@@ -4,7 +4,7 @@ import { ImageResponse } from "next/og";
 import { arc } from "viem/chains";
 import { chain } from "./chain";
 import { db } from "./db";
-import { evidence } from "./ledger/evidence";
+import { evidence, relabel } from "./ledger/evidence";
 
 // Share images (design: Talos Brand and Share, S1 OG, S2/S3 receipt, S5 closing slide). Dark tokens as hex:
 // satori has no CSS variables, no font-feature-settings (so no smcp; small-caps labels fall back to Schibsted 600
@@ -103,7 +103,8 @@ async function withBlocks<T extends { commit_tx: string | null; pay_tx: string |
 }
 const COLS = "id,ts,wallet,wallet_label,verdict,reason,message_excerpt,amount_usdc,commit_tx,pay_tx,note,model";
 
-/// One committed attempt, numbered by its position in the attempts log. Null if missing or never decided.
+/// One committed attempt, numbered by its position in the attempts log. Null if missing or never decided. Labelled as
+/// on /evidence: a wallet added to TEAM_WALLETS after it played is a team test here too.
 export async function receipt(id: string): Promise<Receipt | null> {
   const sb = db();
   const { data } = await sb
@@ -113,7 +114,7 @@ export async function receipt(id: string): Promise<Receipt | null> {
     .maybeSingle();
   if (!data?.verdict) return null;
   const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", data.ts);
-  const [withB] = await withBlocks([data as unknown as Receipt]);
+  const [withB] = await withBlocks([relabel(data as unknown as Receipt)]);
   return { ...withB, index: count ?? 0 } as Receipt;
 }
 
@@ -124,7 +125,7 @@ export async function receiptsFor(wallet: string, limit = 10): Promise<Receipt[]
   const rows = await Promise.all(
     (data ?? []).map(async (r) => {
       const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", r.ts);
-      return { ...r, index: count ?? 0 } as Receipt;
+      return { ...relabel(r as unknown as Receipt), index: count ?? 0 };
     }),
   );
   return withBlocks(rows);
@@ -150,7 +151,7 @@ export async function receiptImage(r: Receipt, size: { width: number; height: nu
     r.verdict === "PAY" ? { c: C.pay, t: amount ? `PAY ${amount} USDC` : "PAY" }
     : r.verdict === "QUEUE" ? { c: C.queue, t: amount ? `QUEUED ${amount} USDC` : "QUEUED" }
     : { c: C.refuse, t: "TALOS REFUSED" };
-  const boast = r.verdict === "PAY" && !team && amount;
+  const boast = r.verdict === "PAY" && r.pay_tx && !r.note && !team && amount;
   return image(
     <Frame w={1200} h={630}>
       <div style={{ display: "flex", flexDirection: "column", gap: 28, height: "100%" }}>
