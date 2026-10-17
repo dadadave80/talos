@@ -133,7 +133,10 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
       setSheet(null);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      setSheetError(/NotAllowed|cancel|abort|timed out/i.test(msg) ? "The passkey prompt was cancelled" : /credentials|configured/i.test(msg) ? "Passkeys aren't enabled for this site yet; use a wallet for now" : "The passkey didn't complete");
+      console.error("[passkey]", e);
+      const why = /NotAllowed|cancel|abort|timed out/i.test(msg) ? "The passkey prompt was cancelled" : /credentials|configured/i.test(msg) ? "Passkeys aren't enabled for this site yet; use a wallet for now" : "The passkey didn't complete";
+      // Show the underlying reason too: the friendly line alone hides misconfiguration (e.g. an RP ID mismatch).
+      setSheetError(`${why} (${msg.split("\n")[0].slice(0, 140)})`);
       setSheet("error");
     }
   }
