@@ -124,3 +124,8 @@ create table if not exists sync_cursor (
 
 alter table chain_events enable row level security;
 alter table sync_cursor enable row level security;
+
+-- Share receipts (/v/{id}): the first 80 characters of the message and the amount paid or queued. The full message
+-- is still never stored.
+alter table attempts add column if not exists message_excerpt text;
+alter table attempts add column if not exists amount_usdc numeric;

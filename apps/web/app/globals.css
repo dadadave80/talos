@@ -1,26 +1,72 @@
 @import "tailwindcss";
 
+/* Talos tokens (design: Talos Brand and Share). Warm OKLCH, hex fallback. Dark is the default; light is warm paper
+   with bronze and verdicts darkened to hold AA, same hues. Radius 0 on stamps and buttons, 6px on composer and
+   sheets only. No shadows, gradients or blur. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #14120f;
+  --raised: #1b1916;
+  --rule: #2e2b26;
+  --ink: #eae5da;
+  --ink-2: #b0aa9f;
+  --ink-3: #8a857b;
+  --bronze: #c48a52;
+  --pay: #66b39b;
+  --queue: #d0a453;
+  --refuse: #c56b55;
+  --focus: #f2c79a;
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f0e8; --raised: #ebe5da; --rule: #d3cbbd; --ink: #1e1b16; --ink-2: #555046; --ink-3: #6b655b;
+    --bronze: #8f5b2c; --pay: #2e7a62; --queue: #8a6413; --refuse: #a8432e; --focus: #b5793f;
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f4f0e8; --raised: #ebe5da; --rule: #d3cbbd; --ink: #1e1b16; --ink-2: #555046; --ink-3: #6b655b;
+  --bronze: #8f5b2c; --pay: #2e7a62; --queue: #8a6413; --refuse: #a8432e; --focus: #b5793f;
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-bg: var(--bg);
+  --color-raised: var(--raised);
+  --color-rule: var(--rule);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-bronze: var(--bronze);
+  --color-pay: var(--pay);
+  --color-queue: var(--queue);
+  --color-refuse: var(--refuse);
+  --color-focus: var(--focus);
+  --font-display: var(--font-brygada), Georgia, serif;
+  --font-sans: var(--font-schibsted), Arial, sans-serif;
+  --font-mono: var(--font-commit), ui-monospace, Menlo, monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--bronze); text-decoration: none; }
+a:hover { color: var(--focus); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+/* Labels. The design wants Brygada smcp/c2sc, but the served Brygada build has no smcp, c2sc or lnum (checked with
+   fontTools), so this is the design's own fallback: Schibsted 600, sentence case, never synthesized small caps. */
+.smallcaps {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+/* Motion is for state change only; with reduced motion every animation is an instant change. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0ms !important; transition-duration: 0ms !important; }
 }

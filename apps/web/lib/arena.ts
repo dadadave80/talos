@@ -39,6 +39,7 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
     toll_status: input.toll.kind === "facilitator" ? input.toll.status : null,
     toll_tx: input.toll.kind === "facilitator" ? (input.toll.tx ?? null) : null,
     prompt_version: PROMPT_VERSION,
+    message_excerpt: input.message.slice(0, 80), // the share receipt quotes this; the full message is never stored
   });
 
   const v = await judge({ message: input.message, wallet, context: { recentDecisionsForThisWallet: recent ?? [] } });
@@ -65,7 +66,13 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
   }
   intent.reason = reason;
 
-  const row: Record<string, unknown> = { verdict, reason, model: v.model, tier_requested: v.tier };
+  const row: Record<string, unknown> = {
+    verdict,
+    reason,
+    model: v.model,
+    tier_requested: v.tier,
+    amount_usdc: verdict === "REFUSE" ? null : Number(intent.amount) / 1e6,
+  };
   try {
     if (verdict === "PAY") {
       const r = await pay(intent);
