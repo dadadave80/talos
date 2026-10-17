@@ -2,9 +2,9 @@ import { formatUnits, getAddress, type Address } from "viem";
 import { Tier } from "./chain";
 import { db } from "./db";
 import { gatewayBalance, gatewayDeposit, x402Buy } from "./ops/vendor";
-import { agentAccount } from "./signers/send";
+import { agentAccount, PendingTx } from "./signers/send";
 import { bountyPrs, openBounties } from "./bounty";
-import { getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
+import { clean, getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
 
 const REPO = "dadadave80/lattice";
 const MIN_GAS = usdc(2);
@@ -20,12 +20,6 @@ const wallets = () =>
       .map((kv) => kv.split(":") as [string, string])
       .map(([login, addr]) => [login.toLowerCase(), getAddress(addr)] as [string, Address]),
   );
-
-/// Error text safe for the public ops log: viem's short message, with URLs (they can carry RPC keys) removed.
-const clean = (e: unknown) =>
-  String((e as { shortMessage?: string })?.shortMessage ?? (e instanceof Error ? e.message : e))
-    .replace(/https?:\/\/\S+/g, "<url>")
-    .slice(0, 160);
 
 /// The next bounty not yet claimed (claims are keyed on the bounty's source: the issue, or the PR's own label).
 async function nextBounty() {
@@ -53,14 +47,22 @@ export async function runVendor(): Promise<string | null> {
   const agent = agentAccount().address;
   if ((await gatewayBalance(agent)) < LOW) {
     const since = new Date(Date.now() - 86_400_000).toISOString();
-    const { data: floats } = await sb.from("ops").select("id").eq("kind", "vendor-float").gte("ts", since).limit(1);
-    if (floats?.length) return "Gateway balance low; today's top-up already sent";
-    const intent: Intent = { attemptId: `float-${since.slice(0, 13)}`, tier: Tier.VENDOR, payee: agent, amount: FLOAT, reason: "Daily ops float for metered x402 services (Gateway deposit)", model: MODEL };
-    const why = await precheckPay(intent);
-    if (why) return `Gateway top-up blocked: ${why}`;
-    const r = await pay(intent);
-    await sb.from("ops").insert({ kind: "vendor-float", ref: intent.attemptId, decision_hash: r.decisionHash, tx: r.payTx, detail: { usdc: 1, commitTx: r.commitTx, failed: r.failed } });
-    if (r.failed) return "Gateway top-up reverted";
+    // A float row with no tx was never sent or reverted (nothing moved); one with a tx, pending included, counts.
+    const { data: floats } = await sb.from("ops").select("ts").eq("kind", "vendor-float").not("tx", "is", null).gte("ts", since).order("ts", { ascending: false }).limit(1);
+    if (floats?.length) {
+      const { data: deposits } = await sb.from("ops").select("id").eq("kind", "vendor-deposit").gte("ts", floats[0].ts).limit(1);
+      if (deposits?.length) return "Gateway balance low; today's float is already deposited";
+      // The float reached the agent but not Gateway: deposit it from the agent's own balance, never a second float.
+      if ((await getBalances()).agentGasUsdc < MIN_GAS + FLOAT) return "Gateway balance low; today's float is not deposited (agent gas too low to retry)";
+    } else {
+      const intent: Intent = { attemptId: `float-${since.slice(0, 13)}`, tier: Tier.VENDOR, payee: agent, amount: FLOAT, reason: "Daily ops float for metered x402 services (Gateway deposit)", model: MODEL };
+      const why = await precheckPay(intent);
+      if (why) return `Gateway top-up blocked: ${why}`;
+      const r = await pay(intent);
+      await sb.from("ops").insert({ kind: "vendor-float", ref: intent.attemptId, decision_hash: r.decisionHash, tx: r.payTx ?? r.pending, detail: { usdc: 1, commitTx: r.commitTx, failed: r.failed, pending: !!r.pending } });
+      if (r.pending) return `Gateway top-up sent, receipt pending (${r.pending.slice(0, 10)}…); deposit retries next cycle`;
+      if (r.failed) return "Gateway top-up reverted";
+    }
     const d = await gatewayDeposit(FLOAT);
     await sb.from("ops").insert({ kind: "vendor-deposit", tx: d.depositTx, detail: { usdc: 1, ...d } });
     // Arc finalises the deposit in about half a second; the seller's verify reads Gateway's API, so wait for it.
@@ -118,24 +120,42 @@ async function step(out: Outcome) {
     reason: `Merged PR ${b.url} by ${b.author}, bounty:${b.usdc}${b.ref === b.url ? "" : ` from ${b.ref}`}`,
     model: MODEL,
   };
-  const why = await precheckPay(intent);
-  const r = !why ? await pay(intent) : why.startsWith("queue:") ? await queueForHuman(intent) : null;
-  await sb
-    .from("ops")
-    .update({
-      decision_hash: r?.decisionHash ?? null,
-      tx: r && "payTx" in r ? r.payTx : (r?.commitTx ?? null),
-      detail: { ...base, payee, state: !r ? `blocked: ${why}` : "payTx" in r ? (r.failed ? `pay reverted: ${r.failed}` : "paid") : "queued", commitTx: r?.commitTx },
-    })
-    .eq("kind", "contributor")
-    .eq("ref", b.ref);
-  out.contributor = !r
-    ? `PR #${b.number} blocked: ${why}`
-    : "payTx" in r
-      ? r.failed
-        ? `PR #${b.number} payment reverted`
-        : `paid ${b.usdc} USDC for PR #${b.number}`
-      : `queued ${b.usdc} USDC for PR #${b.number} for owner approval`;
+  try {
+    const why = await precheckPay(intent);
+    const r = !why ? await pay(intent) : why.startsWith("queue:") ? await queueForHuman(intent) : null;
+    await sb
+      .from("ops")
+      .update({
+        decision_hash: r?.decisionHash ?? null,
+        tx: r && "payTx" in r ? (r.payTx ?? r.pending) : (r?.commitTx ?? null),
+        detail: {
+          ...base,
+          payee,
+          state: !r ? `blocked: ${why}` : "payTx" in r ? (r.pending ? `pay pending: ${r.pending}` : r.failed ? `pay reverted: ${r.failed}` : "paid") : "queued",
+          commitTx: r?.commitTx,
+        },
+      })
+      .eq("kind", "contributor")
+      .eq("ref", b.ref);
+    out.contributor = !r
+      ? `PR #${b.number} blocked: ${why}`
+      : "payTx" in r
+        ? r.pending
+          ? `PR #${b.number} payment sent, receipt pending`
+          : r.failed
+            ? `PR #${b.number} payment reverted`
+            : `paid ${b.usdc} USDC for PR #${b.number}`
+        : `queued ${b.usdc} USDC for PR #${b.number} for owner approval`;
+  } catch (e) {
+    // Never retried (a commit may have landed): the claim row keeps the error, and any sent tx, for the owner.
+    await sb
+      .from("ops")
+      .update({ tx: e instanceof PendingTx ? e.hash : null, detail: { ...base, payee, state: `error: ${clean(e)}` } })
+      .eq("kind", "contributor")
+      .eq("ref", b.ref);
+    out.contributor = `PR #${b.number} hit an error; left on /evidence for the owner`;
+    throw e;
+  }
 }
 
 /// The heartbeat: one "cycle" row per run, stopped and failed runs included. It never throws.

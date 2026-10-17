@@ -3,13 +3,19 @@ import { PROMPT_HASH } from "./brain/prompt";
 import { chain, publicClient, Tier, USDC, vault, vaultAbi, Verdict } from "./chain";
 import { decisionHash } from "./ledger/decision";
 import { budgetKey } from "./ledger/evidence";
-import { agentAccount, hotAccount, sendFrom } from "./signers/send";
+import { agentAccount, hotAccount, PendingTx, sendFrom } from "./signers/send";
 
 const VELOCITY_KEY = keccak256(toBytes("talos.velocity"));
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
 const c = () => ({ address: vault(), abi: vaultAbi }) as const;
 
 export const attemptRef = (attemptId: string) => keccak256(toBytes(attemptId));
+
+/// Error text safe for the public logs: viem's short message, with URLs (they can carry RPC keys) removed.
+export const clean = (e: unknown) =>
+  String((e as { shortMessage?: string })?.shortMessage ?? (e instanceof Error ? e.message : e))
+    .replace(/https?:\/\/\S+/g, "<url>")
+    .slice(0, 160);
 
 export async function getBalances() {
   const agent = agentAccount().address;
@@ -72,15 +78,16 @@ export async function precheckPay(i: Intent): Promise<string | null> {
 const send = (data: Hex, _ref: string) => sendFrom(agentAccount(), vault(), data);
 
 /// commit(PAY) then pay(), both from the agent key. A failed pay() (cap, blocklisted payee, anything)
-/// is a failed attempt: the decision hash is never retried.
+/// is a failed attempt: the decision hash is never retried. pending = sent, receipt unknown (it may have landed).
 export async function pay(i: Intent) {
   const h = hashOf(i);
   const commitTx = await send(encodeFunctionData({ abi: vaultAbi, functionName: "commit", args: [h, Verdict.PAY, attemptRef(i.attemptId)] }), `commit-${i.attemptId}`);
   try {
     const payTx = await send(encodeFunctionData({ abi: vaultAbi, functionName: "pay", args: [h, i.tier, i.payee, i.amount] }), `pay-${i.attemptId}`);
-    return { decisionHash: h, commitTx, payTx, failed: null };
+    return { decisionHash: h, commitTx, payTx, pending: null, failed: null };
   } catch (e) {
-    return { decisionHash: h, commitTx, payTx: null, failed: String(e).slice(0, 300) };
+    if (e instanceof PendingTx) return { decisionHash: h, commitTx, payTx: null, pending: e.hash, failed: null };
+    return { decisionHash: h, commitTx, payTx: null, pending: null, failed: clean(e) };
   }
 }
 

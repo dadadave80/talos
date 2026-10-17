@@ -24,19 +24,34 @@ async function nextNonce(addr: Address, resync: boolean): Promise<number> {
   return pending;
 }
 
-/// Sends one transaction and waits for its receipt; a revert throws. One resync + retry on a nonce error.
+/// A sent transaction whose receipt could not be read: it may have landed, so it is never reported as reverted.
+export class PendingTx extends Error {
+  hash: Hex;
+  constructor(hash: Hex) {
+    super(`pending: ${hash}`);
+    this.hash = hash;
+  }
+}
+
+/// Sends one transaction and waits for its receipt; a revert throws, an unreadable receipt throws PendingTx.
+/// One resync + retry on a nonce error, and only while sending: a sent tx is never sent again.
 export async function sendFrom(account: Account, to: Address, data: Hex): Promise<Hex> {
   const wallet = createWalletClient({ account, chain, transport: http(publicClient.transport.url) });
+  let hash: Hex;
   for (let attempt = 0; ; attempt++) {
     const nonce = await nextNonce(account.address, attempt > 0);
     try {
-      const hash = await wallet.sendTransaction({ to, data, nonce });
-      const r = await publicClient.waitForTransactionReceipt({ hash, timeout: 60_000 });
-      if (r.status !== "success") throw new Error(`reverted: ${hash}`);
-      return hash;
+      hash = await wallet.sendTransaction({ to, data, nonce });
+      break;
     } catch (e) {
       if (attempt === 0 && /nonce/i.test(String(e))) continue;
       throw e;
     }
   }
+  const r = await publicClient
+    .waitForTransactionReceipt({ hash, timeout: 60_000 })
+    .catch(() => publicClient.getTransactionReceipt({ hash }).catch(() => null));
+  if (!r) throw new PendingTx(hash);
+  if (r.status !== "success") throw new Error(`reverted: ${hash}`);
+  return hash;
 }

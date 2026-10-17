@@ -4,7 +4,8 @@ import { PROMPT_VERSION } from "./brain/prompt";
 import { judge } from "./brain/verdict";
 import { Tier, txUrl } from "./chain";
 import { db } from "./db";
-import { pay, precheckPay, queueForHuman, refuse, usdc, type Intent } from "./tools";
+import { PendingTx } from "./signers/send";
+import { clean, pay, precheckPay, queueForHuman, refuse, usdc, type Intent } from "./tools";
 
 export const isTeam = (w: string) =>
   (process.env.TEAM_WALLETS ?? "").toLowerCase().split(",").includes(w.toLowerCase());
@@ -45,17 +46,19 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
   if (unrecorded) return { status: 503, id, error: "could not record the attempt; nothing was decided" };
 
   const v = await judge({ message: input.message, wallet, context: { recentDecisionsForThisWallet: recent ?? [] } });
+  // Only the server's own suffix below may say "[contract:"; neutralised before it is hashed, so the stored reason matches.
+  const said = v.reason.replace(/\[contract:/gi, "(contract:");
   const intent: Intent = {
     attemptId: id,
     tier: Tier[v.tier],
     payee: wallet,
     amount: usdc(Math.max(0, v.amount_usdc).toFixed(6)),
-    reason: v.reason,
+    reason: said,
     model: v.model,
   };
 
   let verdict = v.verdict;
-  let reason = v.reason;
+  let reason = said;
   if (verdict === "PAY") {
     const why = await precheckPay(intent);
     if (why?.startsWith("queue:")) {
@@ -79,7 +82,8 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
     if (verdict === "PAY") {
       const r = await pay(intent);
       Object.assign(row, { decision_hash: r.decisionHash, commit_tx: r.commitTx, pay_tx: r.payTx });
-      if (r.failed) row.note = `pay reverted: ${r.failed}`;
+      if (r.pending) row.note = `pay pending: ${r.pending}`;
+      else if (r.failed) row.note = `pay reverted: ${r.failed}`;
     } else if (verdict === "QUEUE") {
       const r = await queueForHuman(intent);
       Object.assign(row, { decision_hash: r.decisionHash, commit_tx: r.commitTx });
@@ -88,7 +92,7 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
       Object.assign(row, { decision_hash: r.decisionHash, commit_tx: r.commitTx });
     }
   } catch (e) {
-    row.note = `commit failed: ${String(e).slice(0, 200)}`;
+    row.note = e instanceof PendingTx ? `tx pending: ${e.hash}` : `commit failed: ${clean(e)}`;
   }
   row.reason_hash = keccak256(toBytes(intent.reason)); // the reason committed in the decision hash
   await sb.from("attempts").update(row).eq("id", id);
