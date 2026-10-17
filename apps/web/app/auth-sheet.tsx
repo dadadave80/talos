@@ -5,7 +5,7 @@ import { shortAddress } from "./address";
 import { useSession } from "./session";
 
 export type SheetState = "open" | "passkey" | "connecting" | "error" | "done";
-type Mode = "continue" | "create" | "login" | "switch";
+type Mode = "continue" | "create" | "login" | "switch" | "wallet";
 
 // Safari and iOS don't focus a button on click, so the control last clicked stands in for document.activeElement.
 let clicked: HTMLElement | null = null;
@@ -27,7 +27,9 @@ export function AuthSheet(p: {
   onPasskey: () => void; onPasskeyLogin: () => void; onWallet: () => void; onClose: () => void;
 }) {
   const { addr, passkey, accounts, freeLeft, switchTo, forget, announce } = useSession();
-  const mode = p.mode ?? "continue";
+  // "wallet" is "continue" opened from a browser-wallet button: the wallet button is the first action.
+  const wallet = p.mode === "wallet";
+  const mode = p.mode === "wallet" ? "continue" : (p.mode ?? "continue");
   const [view, setView] = useState<"main" | "switch">(mode === "switch" ? "switch" : "main");
   const dialog = useRef<HTMLDialogElement>(null);
   const down = useRef<EventTarget | null>(null);
@@ -127,7 +129,7 @@ export function AuthSheet(p: {
               <div className="flex flex-col gap-1.5">
                 <button
                   type="button"
-                  data-first
+                  data-first={wallet ? undefined : true}
                   onClick={pick ? p.onPasskeyLogin : p.onPasskey}
                   disabled={busy}
                   className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover disabled:cursor-wait disabled:bg-rule disabled:text-ink"
@@ -154,7 +156,7 @@ export function AuthSheet(p: {
             )}
             <button
               type="button"
-              data-first={p.passkeys ? undefined : true}
+              data-first={p.passkeys && !wallet ? undefined : true}
               onClick={p.onWallet}
               disabled={busy}
               className="h-12 cursor-pointer border border-ink text-base font-semibold text-ink hover:bg-bg disabled:cursor-wait disabled:border-rule disabled:text-ink-3"

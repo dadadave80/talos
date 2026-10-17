@@ -14,11 +14,11 @@ export function SignInGate() {
       </h2>
       <p className="max-w-[48ch] text-[15px] leading-[22px] text-ink-2">Five free signed attempts a day. Nothing leaves your wallet.</p>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <button onClick={() => openAuth({ mode: "continue" })} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover">
+        <button onClick={() => openAuth({ mode: passkeys ? "continue" : "wallet" })} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover">
           {passkeys ? "Continue with passkey" : "Connect a wallet"}
         </button>
         {passkeys && (
-          <button onClick={() => openAuth()} className="min-h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px] hover:decoration-ink">
+          <button onClick={() => openAuth({ mode: "wallet" })} className="min-h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px] hover:decoration-ink">
             Use a browser wallet
           </button>
         )}

@@ -13,7 +13,7 @@ import { useSession } from "./session";
 // in ./session. A free attempt is an EIP-191 signature over freeTierMessage, the same builder the server verifies
 // against, so the two cannot drift.
 
-type Team = { attempts: number; wallets: number; refused: number; queued: number; paid: number; paidUsdc: string; offArena?: { count: number; usdc: string; txs?: string[] } };
+type Team = { attempts: number; wallets: number; refused: number; queued: number; paid: number; paidUsdc: string; bounties?: { count: number; usdc: string; txs?: string[] }; offArena?: { count: number; usdc: string; txs?: string[] } };
 type Snap = Snapshot & { team?: Team; lastVerdictAt?: string | null; lastCycle?: { ts: string; summary: string } | null };
 
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -73,13 +73,17 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
   const perMessage = Math.min(Number(d.perTx), Number(d.remaining)).toFixed(2);
   const used = Math.max(0, Number(d.cap) - Number(d.remaining));
   const usedPct = Math.min(100, (used / Number(d.cap)) * 100);
+  // The velocity CircuitBreaker: while tripped the vault refuses every Talos payout, budget or not. Older snapshots lack it.
+  const tripped = !!snap?.tripped;
   const meter = snap.stopped
     ? { num: "0.00", numC: "", fill: "bg-ink-3", line: `Payouts paused by owner · ${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" }
-    : Number(d.remaining) <= 0
-      ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Spent for today · it refills over the rolling day", lineC: "text-ink-2" }
-      : Number(d.remaining) < Number(d.perTx)
-        ? { num: d.remaining, numC: "text-queue", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-queue" }
-        : { num: perMessage, numC: "", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" };
+    : tripped
+      ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Velocity breaker tripped · payouts resume when the owner resets it", lineC: "text-ink-2" }
+      : Number(d.remaining) <= 0
+        ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Spent for today · it refills over the rolling day", lineC: "text-ink-2" }
+        : Number(d.remaining) < Number(d.perTx)
+          ? { num: d.remaining, numC: "text-queue", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-queue" }
+          : { num: perMessage, numC: "", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" };
 
   // Live strip and feed: poll the edge-cached snapshot; Pause stops it.
   useEffect(() => {
@@ -162,13 +166,21 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
     }
   }
 
-  // Signed out with a draft: sign in, then send without a second press. openAuth's `then` runs after the signed-in
-  // render, so it only raises a flag; this effect sends with the new session's state.
+  // A quota or error line belongs to the account that got it. Declared before the auto-send, which may set a new one.
   useEffect(() => {
-    if (!autoSend || !addr) return;
+    setQuota(null);
+    setError(null);
+  }, [addr]);
+
+  // Signed out with a draft: sign in, then send without a second press. openAuth's `then` runs after the signed-in
+  // render, so it only raises a flag; this effect sends with the new session's state, once the cooldown and any earlier
+  // send are done. Signing out drops it.
+  useEffect(() => {
+    if (!addr) return setAutoSend(false);
+    if (!autoSend || pending || cooldown > 0) return;
     setAutoSend(false);
     send();
-  }, [autoSend, addr]);
+  }, [autoSend, addr, pending, cooldown]);
 
   // A new verdict: bring its receipt into view and put focus on its heading.
   useEffect(() => {
@@ -201,7 +213,7 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
     quota ? { t: quotaLine, c: "text-queue" }
     : error ? { t: error, c: "text-refuse" }
     : outOfFree && addr ? { t: quotaLine, c: "text-queue" }
-    : cooldown > 0 && !pending ? { t: `One message every 20 seconds · ${cooldown}s`, c: "text-ink-2" }
+    : cooldown > 0 && !pending ? { t: autoSend ? `Your message sends in ${cooldown}s (one message every 20 seconds)` : `One message every 20 seconds · ${cooldown}s`, c: "text-ink-2" }
     : amtVal > Number(d.perTx) ? { t: `Above ${d.perTx} USDC needs a human signature — this will QUEUE at best.`, c: "text-queue" }
     : /0x[a-fA-F0-9]{4,}/.test(draft) ? { t: "Talos only ever pays the wallet that signs the message.", c: "text-ink-2" }
     : /#\d+|\bPR\s*\d+|pull\/\d+/i.test(draft) ? { t: "The arena does not look up PRs; merged bounty PRs are paid by the hourly operator cycle.", c: "text-ink-2" }
@@ -215,11 +227,13 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
   const lastAt = snap.lastVerdictAt ?? latest?.ts ?? null;
   const banner = snap.stopped
     ? { tag: "Paused", c: "border-queue text-queue", t: "The owner paused payouts. Attempts are still recorded on-chain." }
-    : Number(d.remaining) <= 0
-      ? { tag: "Spent", c: "border-queue text-queue", t: `Talos's discretionary budget is spent for today (${d.cap} / ${d.cap}). It can still refuse or escalate; the cap refills over a rolling day.` }
-      : feedDown && live
-        ? { tag: "Feed", c: "border-ink-2 text-ink-2", t: "Reconnecting to the live feed…" }
-        : null;
+    : tripped
+      ? { tag: "Tripped", c: "border-queue text-queue", t: "The velocity breaker tripped, so Talos can't pay anyone until the owner resets it. It can still refuse or escalate; attempts are still recorded on-chain." }
+      : Number(d.remaining) <= 0
+        ? { tag: "Spent", c: "border-queue text-queue", t: `Talos's discretionary budget is spent for today (${d.cap} / ${d.cap}). It can still refuse or escalate; the cap refills over a rolling day.` }
+        : feedDown && live
+          ? { tag: "Feed", c: "border-ink-2 text-ink-2", t: "Reconnecting to the live feed…" }
+          : null;
   // Above the hero: only facts that are not zero by construction. Each is its own link.
   const facts = [
     { l: "Vault", v: f2(snap.vaultUsdc), u: "USDC", href: `${snap.explorer}/address/${snap.vault}`, ext: true, aria: `Vault holds ${f2(snap.vaultUsdc)} USDC. View it on the explorer` },
@@ -239,7 +253,7 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
   ];
   const team = snap.team;
   // Worded as on /evidence, so the two lines read the same and add up to its "Paid out".
-  const teamLine = team && (team.attempts || team.offArena?.count)
+  const teamLine = team && (team.attempts || team.bounties?.count || team.offArena?.count)
     ? `${plural(team.attempts, "attempt")} · ${team.refused} refused${team.queued ? ` · ${team.queued} queued` : ""} · ${team.paid} paid${team.paid ? ` ${f2(team.paidUsdc)} USDC` : ""}`
     : null;
 
@@ -377,6 +391,17 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
         {teamLine && (
           <p className="text-[13px] leading-5 text-ink-3">
             Team tests, not counted: {teamLine}
+            {team?.bounties?.count ? (
+              <>
+                {" · "}
+                <a
+                  href={team.bounties.txs?.length === 1 ? `${snap.explorer}/tx/${team.bounties.txs[0]}` : "/evidence#operator"}
+                  className="text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">
+                  {plural(team.bounties.count, "bounty payout")}
+                </a>{" "}
+                {f2(team.bounties.usdc)} USDC
+              </>
+            ) : null}
             {team?.offArena?.count ? (
               <>
                 {" · "}
@@ -439,15 +464,20 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
             </div>
           ) : (
             <div className="flex flex-col gap-2 border-t border-ink pt-6">
-              <p className="font-display text-[28px] font-medium leading-8 text-balance">
-                {Number(snap.contributorsPaid) > 0 ? "No attacker has been paid yet." : "Nobody outside the team has been paid yet."}
-              </p>
+              {/* From the event counters, not `best`: an owner-approved queue, or a payout older than the attempts read, leaves it empty. */}
+              {Number(snap.paidToAttackers) === 0 && (
+                <p className="font-display text-[28px] font-medium leading-8 text-balance">
+                  {Number(snap.contributorsPaid) === 0 ? "Nobody outside the team has been paid yet." : "No attacker has been paid yet."}
+                </p>
+              )}
               <p className="text-[17px] leading-7 text-ink-2">
                 {Number(meter.num) > 0
                   ? `${meter.num} USDC is on the table right now.`
                   : snap.stopped
                     ? "Payouts are paused by the owner right now."
-                    : "Today's budget is spent; it refills over the rolling day."}
+                    : tripped
+                      ? "The velocity breaker tripped; payouts resume when the owner resets it."
+                      : "Today's budget is spent; it refills over the rolling day."}
               </p>
               {followOne && (
                 <a href="#follow" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end ↓</a>

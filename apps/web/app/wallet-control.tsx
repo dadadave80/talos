@@ -50,7 +50,7 @@ const item = `${base} items-center gap-2 text-sm`;
 /// so the header doesn't shift when the session loads.
 export function WalletControl({ explorer }: { explorer: string }) {
   const session = useSession();
-  const { ready, addr, kind, accounts, freeLeft, entries, openAuth, signOut, announce } = session;
+  const { ready, restoring, addr, kind, accounts, freeLeft, entries, openAuth, signOut, announce } = session;
   const path = usePathname();
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -64,14 +64,15 @@ export function WalletControl({ explorer }: { explorer: string }) {
   // The header outlives client navigation, so the menu closes on a route change or when the session ends.
   useEffect(() => setOpen(false), [path, addr]);
 
-  // Sign-in, switch and sign-out are announced once, from here; the silent restore on load is not.
+  // Sign-in, switch and sign-out are announced once, from here; the silent restore on load is not, even one that lands
+  // after the header stopped waiting for it.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready || restoring) return;
     const was = seen.current;
     seen.current = addr;
     if (was === undefined || was === addr) return;
     announce(addr ? `${was ? "Switched to" : "Signed in as"} ${shortAddress(addr)}` : "Signed out");
-  }, [ready, addr, announce]);
+  }, [ready, restoring, addr, announce]);
 
   useEffect(() => {
     if (!open) return;

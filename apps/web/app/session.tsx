@@ -14,10 +14,12 @@ import { addSession, lastSession, readStore, removeSession, signOutSession, STOR
 // the passkey store; a wallet is remembered under talos.wallet.v1 and restored only through eth_accounts, which never
 // prompts. Other tabs follow through the storage event.
 
-type Mode = "continue" | "create" | "login" | "switch";
+// "wallet": "continue", but the browser wallet is asked at once and stays the sheet's first action.
+type Mode = "continue" | "create" | "login" | "switch" | "wallet";
 
 export type Session = {
   ready: boolean; // false until localStorage/eth_accounts are read
+  restoring: boolean; // the load's restore still waits on eth_accounts (ready may already be true): its result is silent
   addr: Address | null;
   kind: "passkey" | "eoa" | null;
   passkey: PasskeySession | null;
@@ -68,6 +70,7 @@ export function useSession(): Session {
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [restoring, setRestoring] = useState(true);
   const [passkey, setPasskey] = useState<PasskeySession | null>(null);
   const [eoa, setEoa] = useState<Address | null>(null);
   const [accounts, setAccounts] = useState<PasskeySession[]>([]);
@@ -83,6 +86,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const done = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shown = useRef<Address | null>(null);
   const eoaRef = useRef<Address | null>(null);
+  // Bumped by openAuth, close and each flow: a passkey or wallet request that settles after a bump was dismissed.
+  const flow = useRef(0);
   const addr = passkey?.address ?? eoa;
   const kind = passkey ? "passkey" : eoa ? "eoa" : null;
 
@@ -96,7 +101,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const w = eth();
     if (!saved || !w) return setEoa(null);
     const live = await w.request({ method: "eth_accounts" }).then((a) => (a as string[]).map((x) => getAddress(x)), () => null);
-    if (live && !live.includes(saved)) writeWallet(null);
+    // [] is a locked wallet: signed out for now, still remembered for the unlock.
+    if (live?.length && !live.includes(saved)) writeWallet(null);
     setEoa(live?.includes(saved) ? saved : null);
   }, []);
 
@@ -107,12 +113,16 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // A wallet that never answers eth_accounts must not hold the header placeholder forever.
     const t = setTimeout(() => setReady(true), 1500);
-    restore().finally(() => setReady(true));
+    restore().finally(() => {
+      setReady(true);
+      setRestoring(false);
+    });
     const w = eth();
+    // Follows the signed-in wallet, and signs a remembered one back in when it unlocks; a lock ([]) keeps it remembered.
     const onAccounts = (a: string[]) => {
-      if (!eoaRef.current) return;
+      if (!(eoaRef.current ?? readWallet())) return;
       const next = a[0] ? getAddress(a[0]) : null;
-      writeWallet(next);
+      if (next) writeWallet(next);
       setEoa(next);
     };
     const onStorage = (e: StorageEvent) => {
@@ -167,6 +177,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // `linger`: a sign-in from the sheet shows "Signed in as …" for a moment first; a switch from a menu doesn't.
   const signedIn = useCallback(
     (pk: PasskeySession | null, wallet: Address | null, linger = false) => {
+      setRestoring(false);
       if (!pk) signOutSession();
       writeWallet(wallet);
       setPasskey(pk);
@@ -183,16 +194,19 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // existing one in the browser's passkey picker; "create" always makes a new one.
   const passkeyFlow = useCallback(
     async (m: "continue" | "create" | "login") => {
+      const id = ++flow.current;
       setSheet("passkey");
       try {
         const known = m === "continue" ? lastSession() : null;
         const label = known?.label ?? `TALOS-${Math.random().toString(36).slice(2, 8)}`;
         const credential = known?.credential ?? (m === "login" ? await loginCredential() : await registerCredential(label));
         const account = await accountFromCredential(credential);
-        signedIn(addSession({ address: account.address, credential, label }), null, true);
+        // Closed meanwhile: sign in without reopening the sheet.
+        signedIn(addSession({ address: account.address, credential, label }), null, id === flow.current);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error("[passkey]", e);
+        if (id !== flow.current) return;
         const why = /NotAllowed|cancel|abort|timed out/i.test(msg) ? "The passkey prompt was cancelled" : /credentials|configured/i.test(msg) ? "Passkeys aren't enabled for this site yet; use a wallet for now" : "The passkey didn't complete";
         // Show the underlying reason too: the friendly line alone hides misconfiguration (e.g. an RP ID mismatch).
         setSheetError(`${why} (${msg.split("\n")[0].slice(0, 140)})`);
@@ -208,24 +222,32 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setSheetError("No browser wallet found. Install one (MetaMask, Rabby, Coinbase Wallet) and reload");
       return setSheet("error");
     }
+    const id = ++flow.current;
     setSheet("connecting");
     try {
       const [a] = (await w.request({ method: "eth_requestAccounts" })) as string[];
-      signedIn(null, getAddress(a), true);
+      signedIn(null, getAddress(a), id === flow.current);
     } catch {
+      if (id !== flow.current) return;
       setSheetError("The wallet declined the connection");
       setSheet("error");
     }
   }, [signedIn]);
 
-  const openAuth = useCallback((o?: { mode?: Mode; then?: () => void }) => {
-    after.current = o?.then ?? null;
-    setMode(o?.mode ?? "continue");
-    setSheetError("");
-    setSheet("open");
-  }, []);
+  const openAuth = useCallback(
+    (o?: { mode?: Mode; then?: () => void }) => {
+      flow.current++;
+      after.current = o?.then ?? null;
+      setMode(o?.mode ?? "continue");
+      setSheetError("");
+      if (o?.mode === "wallet") connect();
+      else setSheet("open");
+    },
+    [connect],
+  );
 
   const close = useCallback(() => {
+    flow.current++;
     if (done.current) return finish();
     after.current = null;
     setSheet(null);
@@ -269,8 +291,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<Session>(
-    () => ({ ready, addr, kind, passkey, accounts, freeLeft, entries, team, openAuth, switchTo, forget, signOut, refresh, announce, signMessage }),
-    [ready, addr, kind, passkey, accounts, freeLeft, entries, team, openAuth, switchTo, forget, signOut, refresh, announce, signMessage],
+    () => ({ ready, restoring, addr, kind, passkey, accounts, freeLeft, entries, team, openAuth, switchTo, forget, signOut, refresh, announce, signMessage }),
+    [ready, restoring, addr, kind, passkey, accounts, freeLeft, entries, team, openAuth, switchTo, forget, signOut, refresh, announce, signMessage],
   );
 
   return (
@@ -283,7 +305,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           mode={mode}
           error={sheetError}
           passkeys={circleConfigured()}
-          onPasskey={() => passkeyFlow(mode === "continue" || mode === "create" ? mode : "login")}
+          onPasskey={() => passkeyFlow(mode === "wallet" ? "continue" : mode === "continue" || mode === "create" ? mode : "login")}
           onPasskeyLogin={() => passkeyFlow("login")}
           onWallet={connect}
           onClose={close}
