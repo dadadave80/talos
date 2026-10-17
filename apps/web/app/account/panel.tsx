@@ -208,7 +208,7 @@ function Today() {
         <span className="font-mono text-xs tabular-nums [word-spacing:-0.25em]">{untilReset(now)}</span>
       </p>
       {!out && (
-        <Link href="/#case" className="mt-3 inline-flex min-h-11 items-center self-start text-[15px] font-medium">
+        <Link href="/arena#case" className="mt-3 inline-flex min-h-11 items-center self-start text-[15px] font-medium">
           Make your case →
         </Link>
       )}
@@ -274,7 +274,7 @@ function Attempts({ entries, failed, explorer, perTx, cap }: { entries: Receipt[
       ) : !rows.length ? (
         <div className="mt-3 flex flex-col items-start gap-3 border-t border-rule pt-4">
           <p className="text-[15px] text-ink-2">No attempts yet.{free ? ` ${free}` : ""}</p>
-          <Link href="/" className="inline-flex min-h-11 items-center text-[15px] font-medium">
+          <Link href="/arena" className="inline-flex min-h-11 items-center text-[15px] font-medium">
             Go to the arena →
           </Link>
         </div>

@@ -9,7 +9,7 @@ The arena is a security program, not a game of chance: no prize pool, no escalat
 ## Judge's two-minute tour
 1. **[/evidence](https://talos-treasury.vercel.app/evidence)** — the statement (deposits + tolls − paid out = vault balance) and the counters. Every attempt row opens its commit and pay transactions on the explorer.
 2. **[/policy](https://talos-treasury.vercel.app/policy)** — caps, keys, the 48-hour timelock, the queue and the prompt hash, all read from the vault at the block shown.
-3. **[Try it](https://talos-treasury.vercel.app)** — five free attempts a day with a Circle Modular Wallets passkey or your own wallet. Each verdict is committed on-chain before anything moves, and you get a shareable receipt. Your account (top right, or [/account](https://talos-treasury.vercel.app/account)) keeps your free attempts, record and saved passkeys; light and dark themes follow your device until you pick one. [`/?judge=1`](https://talos-treasury.vercel.app/?judge=1) runs a five-step guided tour.
+3. **[Try it](https://talos-treasury.vercel.app/arena)** — five free attempts a day with a Circle Modular Wallets passkey or your own wallet. Each verdict is committed on-chain before anything moves, and you get a shareable receipt. Your account (top right, or [/account](https://talos-treasury.vercel.app/account)) keeps your free attempts, record and saved passkeys; light and dark themes follow your device until you pick one. [`/arena?judge=1`](https://talos-treasury.vercel.app/arena?judge=1) runs a five-step guided tour.
 4. **Contracts:** [docs/ADDRESSES.md](docs/ADDRESSES.md) — the vault diamond and all 17 facets and inits, Sourcify exact match.
 
 ## What it does

@@ -4,17 +4,17 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const PAGES = [
-  ["Arena", "/"],
+  ["Arena", "/arena"],
   ["Evidence", "/evidence"],
   ["Policy", "/policy"],
   ["Account", "/account"],
 ] as const;
 
-// The active item follows the URL, so the header can live in the layout; receipts (/v/*) mark none.
+// The active item follows the URL, so the header can live in the layout; home (the mark) and receipts (/v/*) mark none.
 export function NavLinks() {
   const path = usePathname();
   return PAGES.map(([label, href]) => {
-    const on = href === "/" ? path === "/" : path === href || path.startsWith(`${href}/`);
+    const on = path === href || path.startsWith(`${href}/`);
     return (
       <Link
         key={href}

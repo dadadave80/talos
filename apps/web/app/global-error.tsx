@@ -40,7 +40,7 @@ export default function GlobalError({ error, unstable_retry }: { error: Error & 
           {error.digest && <code>Reference {error.digest}</code>}
           <div className="row">
             <button type="button" onClick={() => unstable_retry()}>Try again</button>
-            <a href="/">Back to the arena</a>
+            <a href="/arena">Back to the arena</a>
           </div>
         </main>
       </body>

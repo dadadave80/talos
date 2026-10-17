@@ -17,7 +17,7 @@ export default function ErrorPage({ error, unstable_retry }: { error: Error & { 
         <button type="button" onClick={() => unstable_retry()} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover">
           Try again
         </button>
-        <Link href="/" className="inline-flex h-11 items-center text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px] hover:text-ink hover:decoration-ink">
+        <Link href="/arena" className="inline-flex h-11 items-center text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px] hover:text-ink hover:decoration-ink">
           Back to the arena
         </Link>
       </div>

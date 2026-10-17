@@ -69,6 +69,15 @@
   a { color: var(--bronze); text-decoration: none; }
   a:hover { color: var(--focus); }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  /* The parts the browser draws still carry the palette. */
+  html { scrollbar-color: var(--rule) var(--bg); }
+  ::selection { background: color-mix(in oklab, var(--bronze) 38%, transparent); color: var(--ink); }
+  input, textarea { caret-color: var(--bronze); }
+  /* Press feedback: anything pressable gives a little under the finger. Colours keep the theme switch's timing. */
+  button:not(:disabled), .press {
+    transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background-color 150ms, color 150ms, border-color 150ms;
+  }
+  button:not(:disabled):active, .press:active { transform: scale(0.97); }
 }
 
 /* Labels. The design wants Brygada smcp/c2sc, but the served Brygada build has no smcp, c2sc or lnum (checked with
@@ -82,12 +91,12 @@
 /* Verdict arrival: the only rotation in the system. */
 @keyframes stamp-arrive { from { transform: rotate(-1.5deg); } to { transform: rotate(0deg); } }
 .stamp-arrive { animation: stamp-arrive 180ms cubic-bezier(0.23, 1, 0.32, 1); }
-/* Sheet open: 220 ms ease-out, no overshoot. */
+/* Sheet open: 240 ms on a drawer curve, no overshoot. */
 @keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
-.sheet-in { animation: sheet-in 220ms ease-out; }
-/* Account menu open: 120 ms fade and a 4 px drop, on open only. */
+.sheet-in { animation: sheet-in 240ms cubic-bezier(0.32, 0.72, 0, 1); }
+/* Account menu open: 140 ms fade and a 4 px drop from its trigger, on open only. */
 @keyframes menu-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
-.menu-in { animation: menu-in 120ms ease-out; }
+.menu-in { animation: menu-in 140ms cubic-bezier(0.23, 1, 0.32, 1); transform-origin: top right; }
 /* The sign-in dialog's backdrop. The fallback covers browsers where ::backdrop doesn't inherit custom properties. */
 .auth-sheet::backdrop { background: var(--scrim, rgb(20 18 15 / 0.6)); }
 /* Theme switch: a sun in dark (it means "go light"), a moon in light. The pre-paint script always sets data-theme. */
@@ -106,4 +115,5 @@
 /* Motion is for state change only; with reduced motion every animation is an instant change. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0ms !important; transition-duration: 0ms !important; }
+  button:active, .press:active { transform: none; }
 }

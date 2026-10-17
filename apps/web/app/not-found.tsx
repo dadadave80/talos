@@ -15,7 +15,7 @@ export default function NotFound() {
         Receipts live at <span className="font-mono text-[15px]">/v/&lt;id&gt;</span>. The link may have been cut short.
       </p>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
-        <Link href="/" className="inline-flex h-12 items-center bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
+        <Link href="/arena" className="press inline-flex h-12 items-center bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
           Back to the arena
         </Link>
         <Link href="/evidence" className="inline-flex h-11 items-center text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px] hover:text-ink hover:decoration-ink">

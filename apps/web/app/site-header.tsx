@@ -86,7 +86,8 @@ export function SiteFooter() {
         </div>
         <nav aria-label="Site" className="flex flex-col lg:col-span-3">
           <h2 className="smallcaps pb-1 text-[13px] text-ink-3">Site</h2>
-          <Link href="/" className={link}>Arena</Link>
+          <Link href="/" className={link}>Home</Link>
+          <Link href="/arena" className={link}>Arena</Link>
           <Link href="/evidence" className={link}>Evidence</Link>
           <Link href="/policy" className={link}>Policy</Link>
           <Link href="/account" className={link}>Account</Link>

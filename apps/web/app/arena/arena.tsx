@@ -1,14 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address } from "viem";
 import { FREE_PER_WALLET, freeTierMessage } from "@/lib/accounts/freeTier";
 import type { Snapshot } from "@/lib/snapshot";
-import { VerdictReceipt } from "./verdict-receipt";
-import { useSession } from "./session";
+import { VerdictReceipt } from "../verdict-receipt";
+import { useSession } from "../session";
 
-// Design: Talos Arena. The pitch, the meter, the external-only record with team tests named beside it, what everyone
+// Design: Talos Arena (the landing page at / tells the story). The meter, the external-only record with team tests named beside it, what everyone
 // tried and your own attempts. Sign-in (a Circle Modular Wallets passkey, as in engye, or any injected EOA wallet) lives
 // in ./session. A free attempt is an EIP-191 signature over freeTierMessage, the same builder the server verifies
 // against, so the two cannot drift.
@@ -44,7 +44,7 @@ const CHIPS: [string, string][] = [
 
 const editable = (t: EventTarget | null) => t instanceof Element && !!t.closest("input, textarea, select, [contenteditable]");
 
-export function Arena({ initial, network, followOne }: { initial: Snap; network: string; followOne?: ReactNode }) {
+export function Arena({ initial }: { initial: Snap }) {
   const session = useSession();
   const { addr, kind, entries, freeLeft: left, openAuth, signOut, refresh: refreshLedger, signMessage, announce } = session;
   const [tour, setTour] = useState<number | null>(null);
@@ -293,8 +293,8 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
 
       <section className="grid grid-cols-1 gap-8 px-6 pb-12 pt-10 lg:grid-cols-12 lg:gap-x-6 lg:gap-y-10 lg:px-20 lg:pt-14">
         <h1 className="font-display text-4xl font-medium leading-[1.1] tracking-[-0.01em] text-balance lg:col-span-8 lg:text-[56px] lg:leading-[60px]">
-          Talos runs an open-source project&apos;s treasury on {network}.{" "}
-          <span className="text-bronze">Try to rob it. The most you can take is a contract parameter.</span>
+          Talk Talos into paying you.{" "}
+          <span className="text-bronze">The contract lets it lose {d.perTx} USDC a message, no more.</span>
         </h1>
         <div id="tour-free" className="flex flex-col items-start gap-3 self-start lg:col-span-7 lg:justify-self-start">
           {signedIn ? (
@@ -479,9 +479,7 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
                       ? "The velocity breaker tripped; payouts resume when the owner resets it."
                       : "Today's budget is spent; it refills over the rolling day."}
               </p>
-              {followOne && (
-                <a href="#follow" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end ↓</a>
-              )}
+              <Link href="/#follow" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end →</Link>
             </div>
           )}
 
@@ -624,7 +622,6 @@ export function Arena({ initial, network, followOne }: { initial: Snap; network:
             </div>
           </div>
 
-          {followOne && <div id="follow">{followOne}</div>}
         </div>
 
         <aside className="flex flex-col gap-8 lg:col-span-4 lg:col-start-9">
@@ -665,7 +662,7 @@ const TOUR: [string, string, string][] = [
   ["Make your case", "Write to Talos here. Caps, payees and keys sit behind a 48-hour timelock; the policy page shows anything pending.", "tour-composer"],
 ];
 
-/// Design: Sheets and States, judge tour at /?judge=1. The target gets a focus-colour outline, the rest of the page
+/// Design: Sheets and States, judge tour at /arena?judge=1. The target gets a focus-colour outline, the rest of the page
 /// dims through a scrim with a hole cut around the target, and the card sits away from it. ← → step, Esc closes.
 function Tour({ step, onStep }: { step: number; onStep: (n: number | null) => void }) {
   const [title, body, anchor] = TOUR[step];

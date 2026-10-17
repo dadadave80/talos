@@ -70,7 +70,7 @@ export default async function ReceiptPage({ params }: Props) {
           Talos pays a wallet it doesn&apos;t know at most <span className="font-mono text-ink">{perTx} USDC</span> per message, and commits every
           verdict on Arc before any money moves. Signing is free and moves nothing.
         </p>
-        <Link href="/#case" className="flex h-12 items-center justify-center bg-bronze px-5 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
+        <Link href="/arena#case" className="press flex h-12 items-center justify-center bg-bronze px-5 text-base font-semibold text-bg hover:bg-bronze-hover hover:text-bg">
           Try it free — {FREE_PER_WALLET} attempts a day
         </Link>
         <ShareActions r={r} panel />
