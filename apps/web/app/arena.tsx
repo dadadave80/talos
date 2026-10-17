@@ -70,7 +70,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
     if (!live || tickerHold) return () => clearInterval(tick);
-    const poll = setInterval(async () => {
+    const refresh = async () => {
       try {
         const r = await fetch("/api/snapshot");
         if (!r.ok) throw new Error();
@@ -79,7 +79,10 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
       } catch {
         setFeedDown(true);
       }
-    }, 15_000);
+    };
+    // The page itself is ISR and can be minutes old on a cold hit, so refresh at once rather than after 15 s.
+    refresh();
+    const poll = setInterval(refresh, 15_000);
     return () => (clearInterval(tick), clearInterval(poll));
   }, [live, tickerHold]);
 
