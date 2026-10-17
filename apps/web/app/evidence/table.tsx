@@ -1,10 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import type { Snapshot } from "@/lib/snapshot";
 
-// Evidence attempts table: filters, wallet search, 20 per page, one row expanded at a time. Message text is not
-// shown here (the receipt page is the author's to share). The right column is the live verdict feed.
+// Evidence attempts table: filters, wallet search (prefilled from ?wallet=), 20 per page, one row expanded at a time.
+// Message text is not shown here (the receipt page is the author's to share). The right column is the live verdict feed.
 
 export type Row = {
   id: string; ts: string; wallet: string; label: string; account: string; toll: string; tollStatus: string | null;
@@ -18,11 +20,44 @@ const tone = { PAY: "text-pay", QUEUE: "text-queue", REFUSE: "text-refuse" } as 
 const word = { PAY: "Pay", QUEUE: "Queue", REFUSE: "Refuse" } as const;
 const FILTERS = [["All", null], ["Refused", "REFUSE"], ["Paid", "PAY"], ["Queued", "QUEUE"]] as const;
 const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+const blk = (n: number) => Number(n).toLocaleString("en-US");
 const utc = (ts: string) => new Date(ts).toISOString().slice(0, 16).replace("T", " ");
 const ago = (ts: string, now: number) => {
   const s = Math.max(0, Math.round((now - new Date(ts).getTime()) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${Math.round(s / 3600)}h` : `${Math.round(s / 86400)}d`;
 };
+const who = (r: Row) =>
+  r.label === "team" ? "team test · not counted" : r.label !== "external" ? `${r.label} · not counted` : r.account === "embedded" ? "passkey" : "wallet";
+
+// Its own Suspense boundary, so reading the query string keeps the rest of the table in the static render.
+function WalletParam({ onWallet }: { onWallet: (w: string) => void }) {
+  const w = useSearchParams().get("wallet");
+  useEffect(() => {
+    if (w) onWallet(w.trim().toLowerCase());
+  }, [w, onWallet]);
+  return null;
+}
+
+function Segmented({ label, options, value, onChange }: { label: string; options: [string, string | null][]; value: string | null; onChange: (v: string | null) => void }) {
+  return (
+    <div role="group" aria-label={label} className="flex items-center gap-3">
+      <span className="text-[13px] text-ink-2">{label}</span>
+      <div className="flex">
+        {options.map(([l, v]) => (
+          <button
+            key={l}
+            type="button"
+            aria-pressed={value === v}
+            onClick={() => onChange(v)}
+            className={`-ml-px h-11 cursor-pointer border px-3 text-[13px] first:ml-0 ${value === v ? "relative border-bronze text-ink" : "border-rule text-ink-2 hover:text-ink"}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: string }) {
   const [verdict, setVerdict] = useState<string | null>(null);
@@ -36,6 +71,7 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
   const [live, setLive] = useState(true);
   const [now, setNow] = useState(() => Date.now());
   const tx = (h: string) => `${explorer}/tx/${h}`;
+  const fromUrl = useCallback((w: string) => (setQ(w), setPage(0), setOpen(null)), []);
 
   useEffect(() => {
     if (!live) return;
@@ -56,6 +92,12 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
   const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE));
   const slice = shown.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
   const reset = (f: () => void) => (f(), setPage(0), setOpen(null));
+  // Also drops ?wallet= from the URL, so a reload or a shared link does not bring the filter back.
+  const clearWallet = () => {
+    reset(() => setQ(""));
+    if (new URLSearchParams(location.search).has("wallet")) history.replaceState(null, "", location.pathname);
+    document.getElementById("wallet-search")?.focus();
+  };
 
   async function copy(r: Row) {
     const json = { id: r.id, verdict: r.verdict, amount_usdc: r.amount, reason: r.reason, reason_hash: r.reasonHash, decision_hash: r.decisionHash, model: r.model, prompt_version: r.promptVersion, commit_tx: r.commitTx, pay_tx: r.payTx };
@@ -63,42 +105,42 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
     setCopied(r.id);
   }
 
-  const chip = (on: boolean) => `h-8 cursor-pointer text-sm font-medium underline decoration-2 underline-offset-8 ${on ? "text-ink decoration-bronze" : "text-ink-2 decoration-transparent"}`;
+  const chip = (on: boolean) => `min-h-11 cursor-pointer px-3.5 text-sm first:-ml-3.5 font-medium underline decoration-2 underline-offset-8 ${on ? "text-ink decoration-bronze" : "text-ink-2 decoration-transparent"}`;
 
   return (
-    <section className="grid grid-cols-1 gap-8 px-6 py-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
+    <section id="attempts" aria-labelledby="attempts-h" className="grid grid-cols-1 gap-8 px-6 py-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
+      <Suspense fallback={null}>
+        <WalletParam onWallet={fromUrl} />
+      </Suspense>
       <div className="flex min-w-0 flex-col lg:col-span-9">
         <div className="flex items-baseline justify-between border-b border-ink pb-2">
-          <span className="font-display text-2xl font-medium">Attempts</span>
+          <h2 id="attempts-h" className="font-display text-2xl font-medium">Attempts</h2>
           <span className="font-mono text-xs text-ink-3">{shown.length} rows</span>
         </div>
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 py-3">
+        <div className="flex flex-wrap items-center gap-y-1 py-2">
           {FILTERS.map(([l, v]) => (
-            <button key={l} onClick={() => reset(() => setVerdict(v))} className={chip(verdict === v)}>{l}</button>
+            <button key={l} type="button" aria-pressed={verdict === v} onClick={() => reset(() => setVerdict(v))} className={chip(verdict === v)}>{l}</button>
           ))}
           <label className="ml-auto flex items-center max-lg:w-full">
             <span className="sr-only">Search wallet</span>
             <input
+              id="wallet-search"
+              name="wallet"
               value={q}
               onChange={(e) => reset(() => setQ(e.target.value))}
               placeholder="Search wallet 0x…"
-              className="h-9 w-full border-b border-rule bg-transparent font-mono text-sm text-ink outline-none placeholder:text-ink-3 lg:w-56"
+              className="h-11 w-full border-b border-rule bg-transparent font-mono text-sm text-ink outline-none placeholder:text-ink-3 lg:w-56"
             />
           </label>
+          {needle && (
+            <button type="button" onClick={clearWallet} className="min-h-11 cursor-pointer text-sm font-medium text-ink-2 underline decoration-rule underline-offset-4 lg:ml-4">
+              Clear wallet filter
+            </button>
+          )}
         </div>
-        <div className="flex flex-wrap gap-x-6 gap-y-1 pb-3 text-[13px] text-ink-2">
-          <span>
-            Toll:{" "}
-            {[["Any", null], ["Paid", "facilitator"], ["Free", "free"]].map(([l, v]) => (
-              <button key={l} onClick={() => reset(() => setToll(v))} className={`ml-2 cursor-pointer ${toll === v ? "text-ink underline decoration-bronze underline-offset-4" : ""}`}>{l}</button>
-            ))}
-          </span>
-          <span>
-            Account:{" "}
-            {[["Any", null], ["Passkey", "embedded"], ["Wallet", "eoa"]].map(([l, v]) => (
-              <button key={l} onClick={() => reset(() => setAccount(v))} className={`ml-2 cursor-pointer ${account === v ? "text-ink underline decoration-bronze underline-offset-4" : ""}`}>{l}</button>
-            ))}
-          </span>
+        <div className="flex flex-wrap gap-x-8 gap-y-3 pb-4">
+          <Segmented label="Toll" options={[["Any", null], ["Paid", "facilitator"], ["Free", "free"]]} value={toll} onChange={(v) => reset(() => setToll(v))} />
+          <Segmented label="Account" options={[["Any", null], ["Passkey", "embedded"], ["Wallet", "eoa"]]} value={account} onChange={(v) => reset(() => setAccount(v))} />
         </div>
 
         <div className="grid grid-cols-[130px_150px_70px_90px_70px_minmax(0,1fr)_minmax(0,1fr)] gap-3 border-y border-rule py-2 smallcaps text-xs text-ink-3 max-lg:hidden">
@@ -124,7 +166,7 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
               >
                 <span className="font-mono text-xs text-ink-3 max-lg:hidden">{utc(r.ts)}</span>
                 <span className="font-mono text-xs max-lg:order-3">
-                  {short(r.wallet)} <span className="text-ink-3">{r.label !== "external" ? r.label : r.account === "embedded" ? "passkey" : "wallet"}</span>
+                  {short(r.wallet)} <span className="text-ink-3">{who(r)}</span>
                 </span>
                 <span className={`font-mono text-xs max-lg:order-4 max-lg:text-right ${r.tollStatus === "settle_failed" ? "text-refuse" : "text-ink-2"}`}>{tollText}</span>
                 <span className={`smallcaps text-sm max-lg:order-1 ${tone[r.verdict]}`}>{word[r.verdict]}</span>
@@ -141,9 +183,9 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
                   <p className="max-w-[70ch] text-[15px] leading-[22px]">{r.reason}</p>
                   <div className="flex flex-col text-[13px]">
                     {[
-                      ["Committed on-chain", r.commitTx ? `${short(r.commitTx)}${r.commitBlock ? ` · block ${r.commitBlock}` : ""}` : "not committed", r.commitTx],
+                      ["Committed on-chain", r.commitTx ? `${short(r.commitTx)}${r.commitBlock ? ` · block ${blk(r.commitBlock)}` : ""}` : "not committed", r.commitTx],
                       ["Verdict", `${word[r.verdict]}${r.verdict !== "REFUSE" ? ` ${amt} USDC` : ""}`, null],
-                      ["Settled", r.payTx ? `${short(r.payTx)}${r.payBlock ? ` · block ${r.payBlock}` : ""} → ${short(r.wallet)}` : r.verdict === "QUEUE" ? "awaiting owner" : "no money moved", r.payTx],
+                      ["Settled", r.payTx ? `${short(r.payTx)}${r.payBlock ? ` · block ${blk(r.payBlock)}` : ""} → ${short(r.wallet)}` : r.verdict === "QUEUE" ? "awaiting owner" : "no money moved", r.payTx],
                     ].map(([k, v, h]) => {
                       const cls = "grid grid-cols-[150px_minmax(0,1fr)_16px] items-center gap-3 border-t border-rule py-2";
                       const body = (<><span className="text-ink-2">{k}</span><span className="font-mono text-xs">{v}</span><span className="text-bronze">{h ? "↗" : ""}</span></>);
@@ -156,9 +198,9 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
                     <span>prompt {r.promptVersion ?? "—"}</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm font-medium">
-                    <button onClick={() => reset(() => setQ(r.wallet))} className="cursor-pointer text-ink-2 underline decoration-rule underline-offset-4">Filter by this wallet</button>
-                    <button onClick={() => copy(r)} className="cursor-pointer text-ink-2 underline decoration-rule underline-offset-4">{copied === r.id ? "Copied" : "Copy verdict JSON"}</button>
-                    <a href={`/v/${r.id}`} className="text-sm">Receipt ↗</a>
+                    <button type="button" onClick={() => reset(() => setQ(r.wallet))} className="min-h-11 cursor-pointer text-ink-2 underline decoration-rule underline-offset-4">Filter by this wallet</button>
+                    <button type="button" onClick={() => copy(r)} className="min-h-11 cursor-pointer text-ink-2 underline decoration-rule underline-offset-4">{copied === r.id ? "Copied" : "Copy verdict JSON"}</button>
+                    <Link href={`/v/${r.id}`} className="flex min-h-11 items-center text-sm">Receipt →</Link>
                     <span className="text-[13px] font-normal text-ink-3">Message text is shown on the receipt its author shares.</span>
                   </div>
                 </div>
@@ -167,29 +209,29 @@ export function AttemptsTable({ rows, explorer }: { rows: Row[]; explorer: strin
           );
         })}
         {!slice.length && <span className="py-6 text-sm text-ink-3">No attempts match.</span>}
-        <div className="flex justify-between py-3 font-mono text-xs text-ink-3">
+        <div className="flex items-center justify-between py-1 font-mono text-xs text-ink-3">
           <span>p. {page + 1} of {pages}</span>
-          <span className="flex gap-4">
-            <button disabled={page === 0} onClick={() => (setPage(page - 1), setOpen(null))} className="cursor-pointer text-ink-2 disabled:cursor-default disabled:text-ink-3">Previous</button>
-            <button disabled={page >= pages - 1} onClick={() => (setPage(page + 1), setOpen(null))} className="cursor-pointer text-ink-2 disabled:cursor-default disabled:text-ink-3">Next</button>
+          <span className="flex gap-2">
+            <button type="button" disabled={page === 0} onClick={() => (setPage(page - 1), setOpen(null))} className="h-11 cursor-pointer px-2 text-ink-2 disabled:cursor-default disabled:text-ink-3">Previous</button>
+            <button type="button" disabled={page >= pages - 1} onClick={() => (setPage(page + 1), setOpen(null))} className="h-11 cursor-pointer px-2 text-ink-2 disabled:cursor-default disabled:text-ink-3">Next</button>
           </span>
         </div>
       </div>
 
       <aside className="flex flex-col lg:col-span-3">
-        <div className="flex items-baseline justify-between border-b border-ink pb-2">
-          <span className="smallcaps text-sm text-ink-2">Last 10 verdicts</span>
-          <button onClick={() => setLive(!live)} className="cursor-pointer text-sm font-medium text-ink-2">{live ? "Pause" : "Resume"}</button>
+        <div className="flex items-center justify-between border-b border-ink">
+          <h2 className="smallcaps text-sm text-ink-2">Last 10 verdicts</h2>
+          <button type="button" onClick={() => setLive(!live)} className="h-11 cursor-pointer pl-3 text-sm font-medium text-ink-2">{live ? "Pause" : "Resume"}</button>
         </div>
         {(feed ?? []).map((f) => (
-          <a key={f.id} href={`/v/${f.id}`} className="flex items-baseline gap-3 border-b border-rule py-2 text-ink hover:text-ink">
+          <Link key={f.id} href={`/v/${f.id}`} className="flex min-h-11 items-center gap-3 border-b border-rule text-ink hover:text-ink">
             <span className={`smallcaps w-14 text-sm ${tone[f.verdict]}`}>{word[f.verdict]}</span>
-            <span className="font-mono text-xs text-ink-2">{short(f.wallet)}{f.team ? " · team" : ""}</span>
+            <span className="font-mono text-xs text-ink-2">{short(f.wallet)}{f.team ? " · team test" : ""}</span>
             <span className="ml-auto font-mono text-xs text-ink-3">{ago(f.ts, now)}</span>
-          </a>
+          </Link>
         ))}
         {feed && !feed.length && <span className="py-3 text-sm text-ink-3">No verdicts yet.</span>}
-        <span className="pt-2 font-mono text-[11px] text-ink-3">Live · refreshed every 15 s</span>
+        <span className="pt-2 font-mono text-[11px] text-ink-3">{live ? "Live · refreshed every 15 s" : "Paused"}</span>
       </aside>
     </section>
   );

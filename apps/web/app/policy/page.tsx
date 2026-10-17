@@ -1,15 +1,17 @@
 import type { Metadata } from "next";
 import { toFunctionSelector } from "viem";
+import { PROMPT } from "@/lib/brain/prompt";
 import { policy } from "@/lib/policy";
 import { CopyButton } from "../copy-button";
-import { SiteFooter, SiteHeader } from "../site-header";
+import { PromptCheck } from "./prompt-check";
 
 export const revalidate = 15;
-export const metadata: Metadata = { title: "Talos · Policy" };
+export const metadata: Metadata = { title: "Policy" };
 
 const REPO = "https://github.com/dadadave80/talos/blob/main";
 const f2 = (v: string | number) => Number(v).toFixed(2);
 const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+const blk = (n: string | number) => Number(n).toLocaleString("en-US");
 // Names for the calls a timelock round can carry, so a pending change reads as words.
 const KNOWN = Object.fromEntries(
   [
@@ -22,11 +24,12 @@ const KNOWN = Object.fromEntries(
   ].map((sig) => [toFunctionSelector(`function ${sig}`), sig.split("(")[0]]),
 );
 
-function Section({ title, note, children }: { title: string; note?: React.ReactNode; children: React.ReactNode }) {
+// Each section has an id (#caps, #payee, …) so a receipt's "Held by" line can link to the rule that held.
+function Section({ id, title, note, children }: { id: string; title: string; note?: React.ReactNode; children: React.ReactNode }) {
   return (
-    <section className="grid grid-cols-1 gap-4 border-t border-rule px-6 py-8 lg:mx-20 lg:grid-cols-12 lg:gap-x-6 lg:px-0">
+    <section id={id} aria-labelledby={`${id}-h`} className="grid grid-cols-1 gap-4 border-t border-rule px-6 py-8 lg:mx-20 lg:grid-cols-12 lg:gap-x-6 lg:px-0">
       <div className="flex flex-col gap-1.5 lg:col-span-4">
-        <span className="smallcaps text-sm text-ink-2">{title}</span>
+        <h2 id={`${id}-h`} className="smallcaps text-sm text-ink-2">{title}</h2>
         {note && <span className="text-sm leading-5 text-ink-3">{note}</span>}
       </div>
       <div className="flex min-w-0 flex-col lg:col-span-8">{children}</div>
@@ -49,8 +52,7 @@ export default async function PolicyPage() {
   const statusTone = { pending: "text-queue", approved: "text-pay", rejected: "text-refuse", unknown: "text-ink-3" } as const;
 
   return (
-    <div className="relative mx-auto w-full max-w-[1280px] overflow-x-clip">
-      <SiteHeader active="policy" />
+    <main id="main">
       <section className="flex flex-col gap-6 px-6 pb-10 pt-10 lg:px-20 lg:pt-16">
         <h1 className="max-w-[16ch] font-display text-4xl font-medium leading-[1.1] tracking-[-0.01em] text-balance lg:text-[64px] lg:leading-[68px]">
           Nothing on this page can change in under {hours} hours.
@@ -61,8 +63,8 @@ export default async function PolicyPage() {
           <span className="text-ink">{hours} hours</span> and a human signature.
         </p>
         <div className="flex flex-wrap items-center gap-x-3 font-mono text-xs text-ink-3">
-          read at block {p.block}
-          <a href="/policy" className="font-sans text-sm font-medium">Refresh</a>
+          read at block {blk(p.block)}
+          <a href="/policy" className="flex min-h-11 items-center font-sans text-sm font-medium">Refresh</a>
         </div>
       </section>
 
@@ -78,12 +80,12 @@ export default async function PolicyPage() {
               {f2(v)}
               <span className="text-xl text-ink-2"> USDC</span>
             </span>
-            <a href={read} className="font-mono text-xs">params().{key} at {short(p.vault)} · block {p.block} ↗</a>
+            <a href={read} className="font-mono text-xs">params().{key} at {short(p.vault)} · block {blk(p.block)} ↗</a>
           </div>
         ))}
       </section>
 
-      <Section title="Timelock" note={p.pendingOps.length ? `${p.pendingOps.length === 1 ? "One change is" : `${p.pendingOps.length} changes are`} waiting out its ${hours} hours.` : `Every change waits ${hours} hours.`}>
+      <Section id="timelock" title="Timelock" note={p.pendingOps.length ? `${p.pendingOps.length === 1 ? "One change is" : `${p.pendingOps.length} changes are`} waiting out its ${hours} hours.` : `Every change waits ${hours} hours.`}>
         {p.pendingOps.length ? (
           p.pendingOps.map((o) => {
             const left = Math.max(0, o.earliest * 1000 - Date.now());
@@ -104,12 +106,12 @@ export default async function PolicyPage() {
         ) : (
           <span className="border-b border-rule py-2.5 text-sm">
             No changes pending.{" "}
-            {p.lastChange ? <a href={p.lastChange.url}>Last change at block {p.lastChange.block} ↗</a> : "No change has been made since deploy."}
+            {p.lastChange ? <a href={p.lastChange.url}>Last change at block {blk(p.lastChange.block)} ↗</a> : "No change has been made since deploy."}
           </span>
         )}
       </Section>
 
-      <Section title="Caps" note={<>Read from <span className="font-mono">params()</span> at <a href={read}>{short(p.vault)}</a>, block {p.block}.</>}>
+      <Section id="caps" title="Caps" note={<>Read from <span className="font-mono">params()</span> at <a href={read}>{short(p.vault)}</a>, block {blk(p.block)}.</>}>
         <div className="grid grid-cols-[minmax(0,1.2fr)_1fr_1fr_minmax(0,1fr)] gap-3 border-b border-rule pb-2 smallcaps text-xs text-ink-3">
           <span>Tier</span><span>Per tx</span><span>Per rolling day</span><span>Who can be paid</span>
         </div>
@@ -126,14 +128,25 @@ export default async function PolicyPage() {
         </span>
       </Section>
 
-      <Section title="Exits">
+      <Section id="payee" title="Payee" note="Set by the server before the model runs. The model's reply has no payee field.">
+        <span className="max-w-[60ch] text-[15px] leading-[22px]">
+          Talos only pays the wallet that signed the message. A message cannot name another address or a tool.
+        </span>
+        <a href={`${REPO}/apps/web/lib/arena.ts`} className="pt-2 font-mono text-xs">apps/web/lib/arena.ts · attempt() ↗</a>
+        <span className="max-w-[60ch] pt-4 text-sm leading-5 text-ink-2">
+          Contributor and Vendor payouts also need the payee on the vault&apos;s allowlist (<span className="font-mono">isAllowlisted</span>); without it the payment
+          is queued for the owner. Discretionary pays any signer, inside the caps above.
+        </span>
+      </Section>
+
+      <Section id="exits" title="Exits">
         <span className="max-w-[60ch] text-[15px] leading-[22px]">
           Money leaves this contract through exactly two functions, <span className="font-mono">pay</span> and <span className="font-mono">approveQueued</span>. A test checks that no other way out is installed on the diamond.
         </span>
         <a href={`${REPO}/contracts/test/TalosVault.t.sol#L215`} className="pt-2 font-mono text-xs">contracts/test/TalosVault.t.sol · test_noOtherAssetOutPath ↗</a>
       </Section>
 
-      <Section title="Keys" note="The agent key cannot raise a cap, add a payee or change code.">
+      <Section id="keys" title="Keys" note="The agent key cannot raise a cap, add a payee or change code.">
         {p.agentKeys.map((k) => (
           <div key={k.address} className="grid grid-cols-[100px_minmax(0,1fr)] gap-x-3 gap-y-1 border-b border-rule py-2.5 text-sm lg:grid-cols-[120px_minmax(0,1fr)_minmax(0,1fr)]">
             <span>{k.role === "agent" ? "Agent key" : "Hot key"}</span>
@@ -143,7 +156,7 @@ export default async function PolicyPage() {
         ))}
       </Section>
 
-      <Section title="Safety switches" note="Shown as state. Nobody on this page can change them.">
+      <Section id="switches" title="Safety switches" note="Shown as state. Nobody on this page can change them.">
         {[
           ["Emergency stop", p.stopped ? "On — payouts paused" : "Off", p.stopped ? "text-queue" : ""],
           ["Velocity breaker", `${p.velocity.max} payouts per ${Math.round(p.velocity.windowSeconds / 60)} min · ${p.velocityTripped ? "tripped" : "not tripped"}`, p.velocityTripped ? "text-queue" : ""],
@@ -156,7 +169,7 @@ export default async function PolicyPage() {
         ))}
       </Section>
 
-      <Section title="Queue" note="Payments above a cap or to an unlisted payee wait here for the owner.">
+      <Section id="queue" title="Queue" note="Payments above a cap or to an unlisted payee wait here for the owner.">
         {p.queue.length ? (
           <>
             <div className="grid grid-cols-[40px_minmax(0,1fr)_70px_100px_minmax(0,1fr)] gap-3 border-b border-rule pb-2 smallcaps text-xs text-ink-3 max-lg:hidden">
@@ -177,7 +190,11 @@ export default async function PolicyPage() {
         )}
       </Section>
 
-      <Section title="Brain" note={<>Verify: <span className="font-mono">keccak256(PROMPT)</span> should equal the hash. <a href={`${REPO}/apps/web/lib/brain/prompt.ts`}>prompt.ts ↗</a></>}>
+      <Section
+        id="brain"
+        title="Brain"
+        note={<>Talos&apos;s instructions. Their <span className="font-mono">keccak256</span> is part of every committed decision hash. <a href={`${REPO}/apps/web/lib/brain/prompt.ts`}>prompt.ts ↗</a></>}
+      >
         {[
           ["Model · fallback", `${p.brain.model} · ${p.brain.fallback}`],
           ["Prompt version", p.prompt.version],
@@ -191,8 +208,15 @@ export default async function PolicyPage() {
           <span className="min-w-0 flex-1 break-all font-mono text-xs">keccak256 {p.prompt.hash}</span>
           <CopyButton text={p.prompt.hash} />
         </div>
+        <PromptCheck text={PROMPT} hash={p.prompt.hash} />
+        <details className="border-b border-rule">
+          <summary className="cursor-pointer py-3 text-sm font-medium text-bronze hover:text-focus">Read the full prompt</summary>
+          <pre className="max-w-[60ch] whitespace-pre-wrap break-words pb-3 font-mono text-xs leading-5 text-ink">{PROMPT}</pre>
+          <p className="max-w-[60ch] pb-4 text-[13px] leading-5 text-ink-3">
+            The model also gets one fixed line asking for a JSON reply (lib/brain/verdict.ts). That line is not part of this hash.
+          </p>
+        </details>
       </Section>
-      <SiteFooter />
-    </div>
+    </main>
   );
 }
