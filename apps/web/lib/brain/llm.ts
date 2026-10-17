@@ -7,8 +7,8 @@
 // max_completion_tokens; tight caps yield empty content as `json_validate_failed`.
 import { z } from "zod";
 
-const MODEL = process.env.LLM_MODEL ?? "openai/gpt-oss-120b";
-const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL ?? "qwen/qwen3-32b";
+export const MODEL = process.env.LLM_MODEL ?? "openai/gpt-oss-120b";
+export const FALLBACK_MODEL = process.env.LLM_FALLBACK_MODEL ?? "qwen/qwen3-32b";
 const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
 const TIMEOUT_MS = 25_000;
 

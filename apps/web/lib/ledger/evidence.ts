@@ -82,6 +82,9 @@ export async function evidence() {
       label: team.has(String(e.args.payee).toLowerCase()) ? "team" : (byHash.get(e.args.decisionHash)?.wallet_label ?? null),
     })),
     escalations: queued.map((q) => ({ id: q.args.id, tx: q.tx_hash, url: txUrl(q.tx_hash), payee: q.args.payee, usdc: usd(BigInt(q.args.amount)), reason: q.args.reason, outcome: outcome.get(String(q.args.id)) ?? "pending" })),
+    // tx hash -> block, for every mirrored diamond event (commits, pays, queues): trail rows show "block N".
+    blocks: Object.fromEntries(ev.map((e) => [e.tx_hash, Number(e.block)])) as Record<string, number>,
+    paidOutAll: usd(paid.reduce((s, e) => s + BigInt(e.args.amount), 0n)),
     attempts: at.slice(0, 200).map((a) => ({ ...a, commit_url: a.commit_tx ? txUrl(a.commit_tx) : null })),
     ops: ops ?? [],
   };

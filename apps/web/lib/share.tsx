@@ -86,8 +86,16 @@ export async function ogImage(size: { width: number; height: number }) {
 export type Receipt = {
   id: string; ts: string; wallet: string; wallet_label: string; verdict: "PAY" | "QUEUE" | "REFUSE"; reason: string;
   message_excerpt: string | null; amount_usdc: number | null; commit_tx: string | null; pay_tx: string | null;
-  note: string | null; model: string | null; index: number;
+  note: string | null; model: string | null; index: number; commit_block: number | null; pay_block: number | null;
 };
+
+/// Block numbers for a receipt's commit and pay txs, from the mirrored diamond events.
+async function withBlocks<T extends { commit_tx: string | null; pay_tx: string | null }>(rows: T[]) {
+  const txs = rows.flatMap((r) => [r.commit_tx, r.pay_tx]).filter((t): t is string => !!t);
+  const { data } = txs.length ? await db().from("chain_events").select("tx_hash,block").in("tx_hash", txs) : { data: [] };
+  const block = new Map((data ?? []).map((e) => [e.tx_hash, Number(e.block)]));
+  return rows.map((r) => ({ ...r, commit_block: (r.commit_tx && block.get(r.commit_tx)) || null, pay_block: (r.pay_tx && block.get(r.pay_tx)) || null }));
+}
 const COLS = "id,ts,wallet,wallet_label,verdict,reason,message_excerpt,amount_usdc,commit_tx,pay_tx,note,model";
 
 /// One committed attempt, numbered by its position in the attempts log. Null if missing or never decided.
@@ -100,19 +108,21 @@ export async function receipt(id: string): Promise<Receipt | null> {
     .maybeSingle();
   if (!data?.verdict) return null;
   const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", data.ts);
-  return { ...data, index: count ?? 0 } as Receipt;
+  const [withB] = await withBlocks([data as unknown as Receipt]);
+  return { ...withB, index: count ?? 0 } as Receipt;
 }
 
 /// A wallet's decided attempts, newest first, each numbered like its receipt.
 export async function receiptsFor(wallet: string, limit = 10): Promise<Receipt[]> {
   const sb = db();
   const { data } = await sb.from("attempts").select(COLS).eq("wallet", wallet.toLowerCase()).not("verdict", "is", null).order("ts", { ascending: false }).limit(limit);
-  return Promise.all(
+  const rows = await Promise.all(
     (data ?? []).map(async (r) => {
       const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", r.ts);
       return { ...r, index: count ?? 0 } as Receipt;
     }),
   );
+  return withBlocks(rows);
 }
 
 /// Free attempts left today. The route bumps the counter before checking, so n can exceed the limit.

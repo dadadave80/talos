@@ -72,6 +72,9 @@
 /* Verdict arrival: the only rotation in the system. */
 @keyframes stamp-arrive { from { transform: rotate(-1.5deg); } to { transform: rotate(0deg); } }
 .stamp-arrive { animation: stamp-arrive 180ms cubic-bezier(0.23, 1, 0.32, 1); }
+/* Sheet open: 220 ms ease-out, no overshoot. */
+@keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+.sheet-in { animation: sheet-in 220ms ease-out; }
 @keyframes caret { 50% { opacity: 0; } }
 .caret { display: inline-block; width: 1px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--ink); animation: caret 1s steps(1) infinite; }
 

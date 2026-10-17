@@ -1,0 +1,133 @@
+import type { Metadata } from "next";
+import { explorer, txUrl } from "@/lib/chain";
+import { evidence } from "@/lib/ledger/evidence";
+import { SiteFooter, SiteHeader } from "../site-header";
+import { AttemptsTable, type Row } from "./table";
+
+export const revalidate = 15;
+export const metadata: Metadata = { title: "Talos · Evidence" };
+
+const f2 = (v: string | number) => Number(v).toFixed(2);
+const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+
+/// Design: Talos Evidence and Policy, E1/E2. The statement (the vault's books, every tier, team included) and the
+/// band (external wallets only) are kept apart on purpose.
+export default async function EvidencePage() {
+  const e = await evidence();
+  const c = e.counters;
+  const ext = (t: string) => c.payments.find((p) => p.tier === t)?.external.usdc ?? "0";
+  const extAttempts = e.attempts.filter((a) => a.wallet_label === "external" && a.commit_tx);
+  const logs = `${explorer}/address/${e.vault}?tab=logs`;
+  // No deposit events exist for the USDC precompile, so deposits are derived from the other three lines.
+  const deposits = Number(c.vaultUsdc) + Number(e.paidOutAll) - Number(c.tollsReceived.usdc);
+  const recon: [string, string, string][] = [
+    ["Deposits (derived)", "", f2(deposits)],
+    ["Tolls in", "+", f2(c.tollsReceived.usdc)],
+    ["Paid out", "−", f2(e.paidOutAll)],
+  ];
+  const band: [string, string, string, string][] = [
+    ["Attempts", String(c.attempts), `paid ${extAttempts.filter((a) => a.toll_kind === "facilitator").length} · free ${extAttempts.filter((a) => a.toll_kind === "free").length}`, "commit logs"],
+    ["Distinct wallets", String(c.externalWallets.total), `passkey ${c.externalWallets.embedded} · wallet ${c.externalWallets.eoa}`, "commit logs"],
+    ["Refusals", String(c.refusals), "", "verdict logs"],
+    ["Escalations", String(c.escalations.total), `approved ${c.escalations.approved} · rejected ${c.escalations.rejected} · pending ${c.escalations.total - c.escalations.approved - c.escalations.rejected}`, "queued()"],
+    ["Paid to attackers", f2(ext("DISCRETIONARY")), "USDC", "pay txs"],
+    ["Contributors paid", f2(ext("CONTRIBUTOR")), "USDC", "pay txs"],
+    ["Tolls in", f2(c.tollsReceived.usdc), "USDC", "settlements"],
+    ["Vault balance", f2(c.vaultUsdc), "USDC", "balanceOf"],
+  ];
+  const rows: Row[] = e.attempts
+    .filter((a) => a.verdict)
+    .map((a) => ({
+      id: a.id, ts: a.ts, wallet: a.wallet, label: a.wallet_label, account: a.account_kind, toll: a.toll_kind, tollStatus: a.toll_status,
+      verdict: a.verdict, amount: a.amount_usdc, reason: a.reason, reasonHash: a.reason_hash, note: a.note, decisionHash: a.decision_hash,
+      model: a.model, promptVersion: a.prompt_version, commitTx: a.commit_tx, payTx: a.pay_tx, queueId: a.queue_id,
+      commitBlock: a.commit_tx ? (e.blocks[a.commit_tx] ?? null) : null, payBlock: a.pay_tx ? (e.blocks[a.pay_tx] ?? null) : null,
+    }));
+  const ops = e.ops.map((o) => {
+    const d = (o.detail ?? {}) as Record<string, unknown>;
+    const tx = o.tx as string | null;
+    switch (o.kind) {
+      case "contributor":
+        return { ts: o.ts, k: "Contributor", what: `${String(d.pr ?? o.ref)} by ${d.author ?? "?"} · ${d.state ?? ""}`, href: tx ? txUrl(tx) : (d.pr as string) ?? o.ref, link: tx ? `${short(tx)} ↗` : "PR ↗", amt: d.bounty ? f2(String(d.bounty)) : "—" };
+      case "vendor":
+        return { ts: o.ts, k: "Bill", what: `Exa search over x402${d.query ? ` · “${String(d.query).slice(0, 40)}”` : ""}`, href: null, link: o.ref ? `settlement ${String(o.ref).slice(0, 12)}…` : "—", amt: d.usdc != null ? Number(d.usdc).toFixed(3) : "—" };
+      case "vendor-float":
+        return { ts: o.ts, k: "Float", what: "Daily ops float to the agent (VENDOR tier)", href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: "1.00" };
+      case "vendor-deposit":
+        return { ts: o.ts, k: "Gateway", what: "Ops float deposited into Circle Gateway", href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: "1.00" };
+      case "gas-low":
+        return { ts: o.ts, k: "Alert", what: "Signer gas below floor; cycle stopped until topped up", href: null, link: "—", amt: "—" };
+      default:
+        return { ts: o.ts, k: String(o.kind), what: String(o.ref ?? ""), href: tx ? txUrl(tx) : null, link: tx ? `${short(tx)} ↗` : "—", amt: "—" };
+    }
+  });
+  const updated = new Date().toISOString().slice(11, 16);
+
+  return (
+    <div className="relative mx-auto w-full max-w-[1280px] overflow-x-clip">
+      <SiteHeader active="evidence" />
+      <div className="flex justify-between gap-4 px-6 pb-2.5 pt-5 smallcaps text-sm text-ink-3 lg:px-20">
+        <span>Talos · Evidence · as of block {e.syncedToBlock}</span>
+        <span>Updated {updated} UTC</span>
+      </div>
+
+      <section className="grid grid-cols-1 gap-8 border-t border-rule px-6 pb-10 pt-8 lg:mx-20 lg:grid-cols-12 lg:gap-x-6 lg:px-0">
+        <div className="flex flex-col gap-3 lg:col-span-6">
+          <h1 className="font-display text-[44px] font-medium leading-[48px] lg:text-[64px] lg:leading-[68px]">Statement</h1>
+          <span className="max-w-[52ch] text-[15px] leading-[22px] text-ink-2">
+            Every number links to a transaction. External wallets only in the counters below; team and test wallets are labelled and excluded.
+          </span>
+          <span className="font-mono text-xs text-ink-3">Period since the vault was deployed · the vault&apos;s own books include every tier</span>
+        </div>
+        <div className="flex flex-col lg:col-span-5 lg:col-start-8 lg:self-end">
+          {recon.map(([l, op, v]) => (
+            <a key={l} href={logs} className="grid grid-cols-[minmax(0,1fr)_16px_auto] items-baseline gap-3 border-t border-rule py-2.5 text-ink hover:text-ink">
+              <span className="text-[15px] text-ink-2">{l}</span>
+              <span className="font-mono text-sm text-ink-3">{op}</span>
+              <span className="font-display text-2xl font-medium tabular-nums">{v}</span>
+            </a>
+          ))}
+          <a href={`${explorer}/address/${e.vault}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-y-2 border-ink py-3 text-ink hover:text-ink">
+            <span className="text-[15px] font-medium">Vault balance, carried forward</span>
+            <span className="font-display text-[32px] font-medium tabular-nums">{f2(c.vaultUsdc)}</span>
+          </a>
+          <span className="pt-2 font-mono text-xs text-ink-3">USDC · each line opens the vault&apos;s transactions</span>
+        </div>
+      </section>
+
+      <section className="mx-6 grid grid-cols-2 border-t border-rule lg:mx-20 lg:grid-cols-4">
+        {band.map(([l, v, split, src]) => (
+          <div key={l} className="flex flex-col gap-1 border-b border-rule py-4 pr-4">
+            <span className="text-[13px] text-ink-2">{l}</span>
+            <span className="font-display text-[28px] font-medium tabular-nums lg:text-[36px]">{v}</span>
+            <span className="min-h-4 font-mono text-[11px] text-ink-3">{split}</span>
+            <a href={logs} className="font-mono text-[11px] max-lg:hidden">Source: {src} ↗</a>
+          </div>
+        ))}
+      </section>
+
+      <AttemptsTable rows={rows} explorer={explorer} />
+
+      <section className="mx-6 flex flex-col pb-12 lg:mx-20">
+        <div className="flex items-baseline justify-between border-b border-ink pb-2">
+          <span className="font-display text-2xl font-medium">What Talos did for the project</span>
+          <span className="smallcaps text-sm text-ink-3 max-lg:hidden">Talos&apos;s own spending</span>
+        </div>
+        <div className="grid grid-cols-[150px_100px_minmax(0,1fr)_160px_80px] gap-4 border-b border-rule py-2 smallcaps text-xs text-ink-3 max-lg:hidden">
+          <span>Time UTC</span><span>Kind</span><span>Action</span><span>Record</span><span className="text-right">USDC</span>
+        </div>
+        {ops.map((o, i) => (
+          <div key={i} className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 border-b border-rule py-2.5 text-sm lg:grid-cols-[150px_100px_minmax(0,1fr)_160px_80px]">
+            <span className="font-mono text-xs text-ink-3 max-lg:order-3">{String(o.ts).slice(0, 16).replace("T", " ")}</span>
+            <span className="text-ink-2 max-lg:order-1">{o.k}</span>
+            <span className="min-w-0 truncate max-lg:order-4 max-lg:col-span-2">{o.what}</span>
+            {o.href ? <a href={o.href} className="font-mono text-xs max-lg:hidden">{o.link}</a> : <span className="font-mono text-xs text-ink-3 max-lg:hidden">{o.link}</span>}
+            <span className="text-right font-mono text-sm max-lg:order-2">{o.amt}</span>
+          </div>
+        ))}
+        {!ops.length && <span className="py-4 text-sm text-ink-3">No operator actions yet. The hourly cycle logs every bounty payment and bill here.</span>}
+      </section>
+      <SiteFooter />
+    </div>
+  );
+}

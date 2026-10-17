@@ -1,37 +1,46 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
-import { txUrl } from "@/lib/chain";
-import { network, receipt } from "@/lib/share";
+import { formatUnits } from "viem";
+import { explorer, publicClient, Tier, vault, vaultAbi } from "@/lib/chain";
+import { receipt } from "@/lib/share";
+import { SiteFooter, SiteHeader } from "../../site-header";
+import { VerdictReceipt } from "../../verdict-receipt";
 
 type Props = { params: Promise<{ id: string }> };
 
-const word = { PAY: "Paid", QUEUE: "Queued for the owner", REFUSE: "Refused" } as const;
-const color = { PAY: "text-pay border-pay", QUEUE: "text-queue border-queue", REFUSE: "text-refuse border-refuse" } as const;
+const word = { PAY: "paid", QUEUE: "queued", REFUSE: "refused" } as const;
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const r = await receipt((await params).id);
-  return { title: r ? `Talos ${word[r.verdict].toLowerCase()} · attempt ${r.index}` : "Talos receipt" };
+  return { title: r ? `Talos ${word[r.verdict]} · attempt ${r.index}` : "Talos receipt" };
 }
 
-/// Plain receipt page; the share card is ./opengraph-image.tsx.
-export default async function Receipt({ params }: Props) {
-  const r = await receipt((await params).id);
+/// One verdict, shareable. The share card is ./opengraph-image.tsx.
+export default async function ReceiptPage({ params }: Props) {
+  const [r, p] = await Promise.all([
+    receipt((await params).id),
+    publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "params" }),
+  ]);
   if (!r) notFound();
+  const usd = (n: bigint) => Number(formatUnits(n, 6)).toFixed(2);
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-col gap-6 border-l-2 border-bronze px-6 py-16 sm:px-10">
-      <p className="smallcaps text-sm text-ink-2">
-        Talos · receipt · {r.wallet_label === "external" ? `attempt ${r.index}` : "team test, not counted"}
-      </p>
-      <p className={`smallcaps self-start border-2 px-4 py-1 text-2xl ${color[r.verdict]}`}>
-        {word[r.verdict]}
-        {r.amount_usdc != null && r.verdict !== "REFUSE" ? ` ${Number(r.amount_usdc).toFixed(2)} USDC` : ""}
-      </p>
-      {r.message_excerpt && <blockquote className="font-display text-3xl leading-tight">“{r.message_excerpt}”</blockquote>}
-      <p className="text-lg leading-7 text-ink-2">{r.reason}</p>
-      <p className="font-mono text-sm text-ink-3">
-        {r.commit_tx ? <a href={txUrl(r.commit_tx)}>commit {r.commit_tx.slice(0, 10)}…</a> : "not committed"} · {network} ·{" "}
-        {new Date(r.ts).toUTCString()}
-      </p>
-    </main>
+    <div className="relative mx-auto w-full max-w-[1280px] overflow-x-clip">
+      <SiteHeader active="arena" />
+      <main className="flex max-w-3xl flex-col gap-6 px-6 pb-16 pt-10 lg:px-20 lg:pt-16">
+        <span className="smallcaps text-sm text-ink-3">Talos · receipt</span>
+        {r.message_excerpt && (
+          <div className="flex flex-col gap-1.5">
+            <span className="font-mono text-xs text-ink-3">The message (first 80 characters)</span>
+            <blockquote className="font-display text-3xl font-medium leading-tight">
+              “{r.message_excerpt}
+              {r.message_excerpt.length >= 80 ? "…" : ""}”
+            </blockquote>
+          </div>
+        )}
+        <VerdictReceipt r={r} explorer={explorer} perTx={usd(p.perTxCap[Tier.DISCRETIONARY])} cap={usd(p.dailyCap[Tier.DISCRETIONARY])} />
+        <a href="/" className="text-sm font-medium">Try to rob it yourself →</a>
+      </main>
+      <SiteFooter />
+    </div>
   );
 }

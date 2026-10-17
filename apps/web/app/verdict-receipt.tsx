@@ -5,7 +5,7 @@ import type { Receipt } from "@/lib/share";
 
 // Design: VerdictReceipt. One decided attempt as a ledger entry: stamp, rationale, what moved, the on-chain trail.
 // `pending` is the in-flight state (the attempt API is not streaming, so this stands in for the design's streaming
-// state). Block numbers are not stored, so trail rows show the tx and link to the explorer.
+// state). Block numbers come from the mirrored diamond events.
 
 type Props = { r?: Receipt; pending?: boolean; arriving?: boolean; explorer: string; perTx: string; cap: string };
 type Row = { k: string; v: string; s: "pending" | "landed" | "none" | "fail"; href?: string };
@@ -35,7 +35,7 @@ export function VerdictReceipt({ r, pending, arriving, explorer, perTx, cap }: P
   const commitFailed = r.note?.startsWith("commit failed");
   const payFailed = r.note?.startsWith("pay reverted");
   const rows: Row[] = [
-    r.commit_tx ? { k: "Commit", v: short(r.commit_tx), s: "landed", href: tx(r.commit_tx) } : { k: "Commit", v: commitFailed ? "commit failed" : "not committed", s: "fail" },
+    r.commit_tx ? { k: "Commit", v: `${short(r.commit_tx)}${r.commit_block ? ` · block ${r.commit_block}` : ""}`, s: "landed", href: tx(r.commit_tx) } : { k: "Commit", v: commitFailed ? "commit failed" : "not committed", s: "fail" },
     { k: "Verdict", v: r.verdict === "REFUSE" ? "Refuse" : `${r.verdict === "PAY" ? "Pay" : "Queue"} ${amount ?? ""}`, s: r.commit_tx ? "landed" : "none" },
     r.verdict === "PAY"
       ? r.pay_tx && !payFailed
@@ -70,6 +70,7 @@ export function VerdictReceipt({ r, pending, arriving, explorer, perTx, cap }: P
       <div className="flex items-baseline gap-3 pt-2.5">
         <span className="smallcaps text-sm text-ink-2">
           Attempt {r.index}
+          {r.commit_block ? ` · block ${r.commit_block}` : ""}
           {r.wallet_label !== "external" && " · team test, not counted"}
         </span>
         <span className="ml-auto font-mono text-xs text-ink-3">{new Date(r.ts).toISOString().slice(0, 16).replace("T", " ")} UTC</span>

@@ -31,6 +31,10 @@ const CHIPS: [string, string][] = [
 ];
 
 export function Arena({ initial, network }: { initial: Snapshot; network: string }) {
+  const [sheet, setSheet] = useState<null | "open" | "connecting" | "error">(null);
+  const [sheetError, setSheetError] = useState("");
+  const [tour, setTour] = useState<number | null>(null);
+  const [tickerHold, setTickerHold] = useState(false);
   const [snap, setSnap] = useState(initial);
   const [now, setNow] = useState(initial.at);
   const [live, setLive] = useState(true);
@@ -51,11 +55,18 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
   const perMessage = Math.min(Number(d.perTx), Number(d.remaining)).toFixed(2);
   const used = Math.max(0, Number(d.cap) - Number(d.remaining));
   const usedPct = Math.min(100, (used / Number(d.cap)) * 100);
+  const meter = snap.stopped
+    ? { num: "0.00", numC: "", fill: "bg-ink-3", line: `Payouts paused by owner · ${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" }
+    : Number(d.remaining) <= 0
+      ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Spent for today · it refills over the rolling day", lineC: "text-ink-2" }
+      : Number(d.remaining) < Number(d.perTx)
+        ? { num: d.remaining, numC: "text-queue", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-queue" }
+        : { num: perMessage, numC: "", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" };
 
   // Live strip and feed: poll the edge-cached snapshot; Pause stops it.
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    if (!live) return () => clearInterval(tick);
+    if (!live || tickerHold) return () => clearInterval(tick);
     const poll = setInterval(async () => {
       try {
         const r = await fetch("/api/snapshot");
@@ -67,7 +78,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
       }
     }, 15_000);
     return () => (clearInterval(tick), clearInterval(poll));
-  }, [live]);
+  }, [live, tickerHold]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -81,6 +92,10 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
     const body = (await r.json()) as { entries: Receipt[]; freeLeft: number };
     setEntries(body.entries);
     setLeft(body.freeLeft);
+  }, []);
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get("judge") === "1") setTour(0);
   }, []);
 
   // Restore a wallet that is already connected, without a prompt.
@@ -99,12 +114,19 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
 
   async function connect() {
     const w = eth();
-    if (!w) return setNoWallet(true);
+    if (!w) {
+      setNoWallet(true);
+      setSheetError("No browser wallet found. Install one (MetaMask, Rabby, Coinbase Wallet) and reload");
+      return setSheet("error");
+    }
+    setSheet("connecting");
     try {
       const [a] = (await w.request({ method: "eth_requestAccounts" })) as string[];
       setAddr(getAddress(a));
+      setSheet(null);
     } catch {
-      setError("Wallet connection was declined.");
+      setSheetError("The wallet declined the connection");
+      setSheet("error");
     }
   }
 
@@ -149,14 +171,16 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
   const amt = draft.match(/\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:usdc|usd|dollars)/i);
   const amtVal = amt ? parseFloat(amt[1] || amt[2]) : 0;
   const hint =
-    amtVal > Number(d.perTx) ? { t: `Above ${d.perTx} USDC needs a human signature — this will QUEUE at best.`, c: "text-queue" }
+    left === 0 && addr ? { t: "Free attempts used — paid attempts (0.05 USDC into the vault) open soon.", c: "text-queue" }
+    : cooldown > 0 && !pending ? { t: `One message every 20 seconds · ${cooldown}s`, c: "text-ink-2" }
+    : amtVal > Number(d.perTx) ? { t: `Above ${d.perTx} USDC needs a human signature — this will QUEUE at best.`, c: "text-queue" }
     : /0x[a-fA-F0-9]{4,}/.test(draft) ? { t: "Talos only ever pays the wallet that signs the message.", c: "text-ink-2" }
     : /#\d+|\bPR\s*\d+|pull\/\d+/i.test(draft) ? { t: "The arena does not look up PRs; merged bounty PRs are paid by the hourly operator cycle.", c: "text-ink-2" }
     : { t: "You sign a message for a free attempt; nothing leaves your wallet.", c: "text-ink-3" };
 
   const signedIn = !!addr;
   const outOfFree = left === 0;
-  const sendLabel = !signedIn ? "Sign in to send" : pending ? "Deciding…" : cooldown > 0 ? `Wait ${cooldown}s` : outOfFree ? "Free attempts used" : `Send · free (${left ?? FREE_PER_WALLET} left)`;
+  const sendLabel = !signedIn ? "Sign in to send" : pending ? "Sending…" : cooldown > 0 || outOfFree ? "Send" : `Send · free (${left ?? FREE_PER_WALLET} left)`;
   const canSend = signedIn && !pending && cooldown === 0 && !outOfFree && !!draft.trim();
   const latest = snap.feed[0];
   const lastRefusal = snap.feed.find((f) => f.verdict === "REFUSE");
@@ -184,7 +208,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
         <span>Talos · Arena · as of block {snap.block}</span>
         <span>Read {ago(snap.at, now)}</span>
       </div>
-      <a href="/api/evidence" className="mx-6 flex flex-wrap gap-x-8 gap-y-3 border-y border-rule py-3.5 text-ink hover:text-ink lg:mx-20">
+      <a href="/evidence" className="mx-6 flex flex-wrap gap-x-8 gap-y-3 border-y border-rule py-3.5 text-ink hover:text-ink lg:mx-20">
         {counters.map(([l, v, u], i) => (
           <span key={l} className={`flex items-baseline gap-2 ${i > 2 && i !== 4 && i !== 5 ? "max-lg:hidden" : ""}`}>
             <span className="text-[13px] text-ink-2">{l}</span>
@@ -199,11 +223,11 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
           Talos runs an open-source project&apos;s treasury on {network}.{" "}
           <span className="text-bronze">Try to rob it. The most you can take is a contract parameter.</span>
         </h1>
-        <div className="flex flex-col gap-3 lg:col-span-4 lg:self-end">
+        <a id="tour-meter" href="/policy" className="flex flex-col gap-3 text-ink hover:text-ink lg:col-span-4 lg:self-end">
           <div className="flex items-baseline justify-between gap-3 lg:flex-col lg:items-start">
             <span className="smallcaps text-sm text-ink-2">Most you can take now</span>
-            <span className="font-display text-2xl font-medium tabular-nums lg:text-[56px] lg:leading-[60px]">
-              {perMessage}
+            <span className={`font-display text-2xl font-medium tabular-nums lg:text-[56px] lg:leading-[60px] ${meter.numC}`}>
+              {meter.num}
               <span className="text-sm text-ink-2 lg:text-xl"> USDC</span>
             </span>
           </div>
@@ -212,30 +236,35 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
             {Array.from({ length: 11 }, (_, i) => (
               <div key={i} className="absolute top-2.5 h-[9px] w-px bg-rule" style={{ left: `${((i + 1) / 12) * 100}%` }} />
             ))}
-            <div className="absolute left-0 top-[13px] h-[3px] bg-bronze" style={{ width: `${usedPct}%` }} />
-            <div className="absolute top-1 h-5 w-0.5 bg-bronze" style={{ left: `${usedPct}%` }} />
+            <div className={`absolute left-0 top-[13px] h-[3px] ${meter.fill}`} style={{ width: `${usedPct}%` }} />
+            <div className={`absolute top-1 h-5 w-0.5 ${meter.fill}`} style={{ left: `${usedPct}%` }} />
             <div className="absolute right-0 top-0.5 h-6 w-[5px] border-x border-ink" />
           </div>
           <div className="flex justify-between font-mono text-xs text-ink-3">
             <span>0</span>
             <span>{d.cap} USDC / rolling day</span>
           </div>
-          <span className="text-sm text-ink-2">
-            {used.toFixed(2)} of {d.cap} USDC used over the rolling day
-          </span>
-        </div>
+          <span className={`text-sm ${meter.lineC}`}>{meter.line}</span>
+        </a>
       </section>
 
       <section className="grid grid-cols-1 gap-8 px-6 pb-12 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
         <div className="flex flex-col items-start gap-3 lg:col-span-7">
           {signedIn ? (
-            <span className="font-mono text-[13px]">
-              Signed in as {short(addr)} · {left ?? "…"} free attempts left today
-            </span>
+            <>
+              <span className="font-mono text-[13px]">
+                Signed in as {short(addr)} · {left ?? "…"} free attempts left today
+              </span>
+              {entries[0] && (
+                <a href={`/v/${entries[0].id}`} className="font-mono text-[13px] text-ink">
+                  Welcome back — your last attempt was <span className={verdictTone[entries[0].verdict]}>{verdictWord(entries[0].verdict, entries[0].amount_usdc)}</span> {ago(entries[0].ts, now)} <span className="text-bronze">↗</span>
+                </a>
+              )}
+            </>
           ) : (
             <>
               <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-6">
-                <button onClick={connect} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-[#9A6A3C] hover:text-ink">
+                <button id="tour-free" onClick={() => setSheet("open")} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-[#9A6A3C] hover:text-ink">
                   Try it free — 5 attempts
                 </button>
                 {lastRefusal && (
@@ -261,7 +290,14 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
         </div>
       </section>
 
-      <div className="mx-6 flex h-11 items-center gap-4 border-y border-rule text-[13px] lg:mx-20">
+      <div
+        className={`mx-6 flex h-11 items-center gap-4 text-[13px] lg:mx-20 ${latest ? "border-y border-rule" : ""}`}
+        onMouseEnter={() => setTickerHold(true)}
+        onMouseLeave={() => setTickerHold(false)}
+        onFocus={() => setTickerHold(true)}
+        onBlur={() => setTickerHold(false)}
+      >
+        {latest && (<>
         <span className="smallcaps text-sm text-ink-3">Latest</span>
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-ink-2" aria-live="off">
           {latest ? (
@@ -270,13 +306,12 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
               {latest.team && " (team test)"}
               {latest.excerpt && ` · "${latest.excerpt.slice(0, 60)}"`} · {ago(latest.ts, now)}
             </a>
-          ) : (
-            "No attempts yet."
-          )}
+          ) : null}
         </span>
         <button onClick={() => setLive(!live)} className="cursor-pointer font-medium text-ink-2">
-          {live ? "Pause live feed" : "Resume live feed"}
+          {live && !tickerHold ? "Pause live feed" : "Resume"}
         </button>
+        </>)}
       </div>
 
       {banner && (
@@ -288,7 +323,17 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
 
       <section className="grid grid-cols-1 gap-10 px-6 pb-16 pt-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
         <div className="flex flex-col gap-8 lg:col-span-7">
-          <span className="smallcaps text-sm text-ink-2">{signedIn ? "Your ledger" : "What others tried"}</span>
+          {snap.best && (
+            <div className="flex flex-col gap-3.5 border-t border-ink pt-6">
+              <span className="font-display text-[32px] font-medium leading-9">This is the most anyone has taken: {snap.best.amount} USDC.</span>
+              {snap.best.excerpt && <span className="max-w-[60ch] border-l border-ink-3 pl-4 text-[17px] leading-7">“{snap.best.excerpt}”</span>}
+              <span className="max-w-[60ch] text-[15px] leading-[22px] text-ink-2">{snap.best.reason}</span>
+              <a href={`${snap.explorer}/tx/${snap.best.payTx}`} className="font-mono text-xs">
+                paid {snap.best.amount} USDC → {short(snap.best.wallet)} · {short(snap.best.payTx)} ↗
+              </a>
+            </div>
+          )}
+          <span id="tour-trail" className="smallcaps text-sm text-ink-2">{signedIn ? "Your ledger" : "What others tried"}</span>
           {!signedIn ? (
             <div className="-mt-5 flex flex-col">
               {snap.feed.slice(0, 3).map((o) => (
@@ -326,7 +371,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
             </div>
           )}
 
-          <div className={`flex flex-col gap-3.5 ${signedIn ? "max-lg:sticky max-lg:bottom-0 max-lg:-mx-6 max-lg:border-t max-lg:border-rule max-lg:bg-bg max-lg:px-6 max-lg:pb-6 max-lg:pt-2.5" : ""}`}>
+          <div id="tour-composer" className={`flex flex-col gap-3.5 ${signedIn ? "max-lg:sticky max-lg:bottom-0 max-lg:-mx-6 max-lg:border-t max-lg:border-rule max-lg:bg-bg max-lg:px-6 max-lg:pb-6 max-lg:pt-2.5" : ""}`}>
             <span className={`max-w-[60ch] text-[15px] leading-[22px] text-ink-2 ${signedIn ? "max-lg:hidden" : ""}`}>
               I pay Lattice contributors for merged PRs and the project&apos;s own bills. Convince me you&apos;ve earned something.
             </span>
@@ -356,7 +401,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
               <div className="flex items-center gap-3 border-t border-rule py-2 pl-4 pr-2">
                 <span className={`flex-1 text-[13px] leading-5 ${error ? "text-refuse" : hint.c}`} aria-live="polite">{error ?? hint.t}</span>
                 <button
-                  onClick={signedIn ? send : connect}
+                  onClick={signedIn ? send : () => setSheet("open")}
                   disabled={signedIn && !canSend}
                   className={`h-9 flex-none cursor-pointer rounded px-4 text-sm font-semibold disabled:cursor-not-allowed ${signedIn && canSend ? "bg-bronze text-bg" : signedIn ? "bg-rule text-ink-3" : "bg-bronze text-bg"}`}
                 >
@@ -375,12 +420,12 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
               ["A human above the line", `Anything over ${d.perTx} USDC queues for an owner signature.`],
               ["A complete record", "Every attempt is committed to Arc before money moves."],
             ].map(([h, t]) => (
-              <a key={h} href="/api/policy" className="flex flex-col gap-1 border-t border-rule py-3 text-ink hover:text-ink">
+              <a key={h} href="/policy" className="flex flex-col gap-1 border-t border-rule py-3 text-ink hover:text-ink">
                 <span className="text-[15px] font-medium">{h}</span>
                 <span className="text-sm leading-5 text-ink-2">{t}</span>
               </a>
             ))}
-            <a href="/api/policy" className="border-t border-rule py-3 text-sm font-medium">Read the policy</a>
+            <a href="/policy" className="border-t border-rule py-3 text-sm font-medium">Read the policy</a>
           </div>
           {signedIn && (
             <div className="flex flex-col gap-1 border-t border-rule pt-3">
@@ -391,6 +436,83 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
           )}
         </aside>
       </section>
+
+      {sheet && <AuthSheet state={sheet} error={sheetError} onConnect={connect} onClose={() => setSheet(null)} />}
+      {tour !== null && <Tour step={tour} onStep={setTour} />}
     </>
+  );
+}
+
+/// Design: Sheets and States, auth sheet. One primary action. Passkeys (Circle Modular Wallets) are not built yet,
+/// so the sheet offers a browser wallet only and says so; it never shows a passkey button that does nothing.
+function AuthSheet({ state, error, onConnect, onClose }: { state: "open" | "connecting" | "error"; error: string; onConnect: () => void; onClose: () => void }) {
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    addEventListener("keydown", esc);
+    return () => removeEventListener("keydown", esc);
+  }, [onClose]);
+  const connecting = state === "connecting";
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 lg:items-center" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="auth-title"
+        onClick={(e) => e.stopPropagation()}
+        className="sheet-in flex w-full max-w-[440px] flex-col gap-3.5 rounded-t-md border-t border-ink bg-raised px-6 pb-8 pt-3 lg:rounded-md"
+      >
+        <div className="mb-2 mt-1 h-px w-12 self-center bg-ink-3" aria-hidden="true" />
+        <h2 id="auth-title" className="font-display text-[28px] font-medium leading-8">{connecting ? "Connect existing wallet" : "Try it free"}</h2>
+        <p className="text-[15px] leading-[22px] text-ink-2">
+          {connecting ? "Approve the connection in your wallet. You will only ever sign messages; nothing leaves your wallet." : "5 free attempts per day with any browser wallet. Each one is a signed message: no gas, no funds."}
+        </p>
+        <button
+          onClick={onConnect}
+          disabled={connecting}
+          autoFocus
+          className={`h-13 cursor-pointer text-base font-semibold disabled:cursor-wait ${connecting ? "bg-rule text-ink" : "bg-ink text-bg"}`}
+        >
+          {connecting ? "Connecting…" : "Connect a wallet"}
+        </button>
+        <button onClick={onClose} className="h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px]">
+          Not now
+        </button>
+        <span className={`min-h-5 text-center text-[13px] ${state === "error" ? "text-refuse" : "text-ink-3"}`} role={state === "error" ? "alert" : undefined}>
+          {state === "error" ? `${error}. Try again.` : "Passkey sign-in is coming."}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+const TOUR: [string, string, string][] = [
+  ["The worst case, read from the contract", "This scale is today's discretionary budget, read from the vault. Tap it to open the policy it comes from.", "tour-meter"],
+  ["Your free attempt", "Connect any browser wallet and sign a message. Five a day, no gas, nothing leaves your wallet.", "tour-free"],
+  ["The on-chain trail", "Every verdict is committed to Arc before any money moves, refusals included.", "tour-trail"],
+  ["Every row links to a transaction", "Open a receipt: the commit, the verdict and the settlement each link to the explorer.", "tour-trail"],
+  ["Nothing changes in under 48 hours", "Caps, payees and keys sit behind a 48-hour timelock. The policy page shows anything pending.", ""],
+];
+
+/// Design: Sheets and States, judge tour at /?judge=1.
+function Tour({ step, onStep }: { step: number; onStep: (n: number | null) => void }) {
+  const [title, body, anchor] = TOUR[step];
+  useEffect(() => {
+    if (anchor) document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [anchor]);
+  const last = step === TOUR.length - 1;
+  return (
+    <div role="dialog" aria-label="Judge tour" className="fixed bottom-4 right-4 z-40 flex w-[min(390px,calc(100vw-32px))] flex-col gap-2.5 rounded-md border-t border-bronze bg-raised px-5 py-4">
+      <span className="smallcaps text-sm text-bronze">Tour · {step + 1} of {TOUR.length}</span>
+      <span className="text-[17px] font-medium">{step + 1} · {title}</span>
+      <span className="text-[15px] leading-[22px] text-ink-2">{body}</span>
+      <div className="flex items-center gap-5">
+        {last ? (
+          <a href="/policy" className="flex h-11 items-center bg-ink px-4.5 text-[15px] font-semibold text-bg hover:text-bg">Open the policy</a>
+        ) : (
+          <button onClick={() => onStep(step + 1)} className="h-11 cursor-pointer bg-ink px-4.5 text-[15px] font-semibold text-bg">Next</button>
+        )}
+        <button onClick={() => onStep(null)} className="h-11 cursor-pointer text-[15px] font-medium text-ink-2">{last ? "Close" : "Skip tour"}</button>
+      </div>
+    </div>
   );
 }

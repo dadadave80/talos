@@ -22,6 +22,11 @@ export async function snapshot() {
     contributorsPaid: ext("CONTRIBUTOR"),
     escalations: c.escalations.total,
     stopped,
+    // "The one that worked": the largest payout to an external wallet. Null until one exists.
+    best: (() => {
+      const b = e.attempts.filter((a) => a.wallet_label === "external" && a.verdict === "PAY" && a.pay_tx && !a.note).sort((x, y) => Number(y.amount_usdc) - Number(x.amount_usdc))[0];
+      return b ? { id: b.id as string, excerpt: (b.message_excerpt as string | null) ?? null, reason: b.reason as string, amount: Number(b.amount_usdc).toFixed(2), payTx: b.pay_tx as string, wallet: b.wallet as string } : null;
+    })(),
     feed: e.attempts
       .filter((a) => a.verdict && a.wallet_label !== "synthetic")
       .slice(0, 10)
