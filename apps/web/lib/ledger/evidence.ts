@@ -24,6 +24,7 @@ export async function evidence() {
   const at = attempts ?? [];
   const ext = at.filter((a) => a.wallet_label === "external");
   const byHash = new Map(at.map((a) => [a.decision_hash, a]));
+  const team = new Set((process.env.TEAM_WALLETS ?? "").toLowerCase().split(",").filter(Boolean));
   const distinct = (rows: typeof at) => new Set(rows.map((a) => a.wallet)).size;
 
   const commits = ev.filter((e) => e.name === "DecisionCommitted");
@@ -52,9 +53,15 @@ export async function evidence() {
       attempts: ext.filter((a) => a.commit_tx).length,
       refusals: ext.filter((a) => a.commit_tx && a.verdict === "REFUSE").length,
       tollsReceived: { count: tolls.length, usdc: (tolls.length * 0.05).toFixed(2) },
+      // Team wallets are labelled on the attempt row or listed in TEAM_WALLETS; they never count as external.
       payments: TIERS.map((name, tier) => {
         const rows = paid.filter((e) => Number(e.args.tier) === tier);
-        return { tier: name, count: rows.length, usdc: usd(rows.reduce((s, e) => s + BigInt(e.args.amount), 0n)) };
+        const sum = (r: typeof rows) => usd(r.reduce((s, e) => s + BigInt(e.args.amount), 0n));
+        const isTeam = (e: (typeof rows)[number]) =>
+          team.has(String(e.args.payee).toLowerCase()) || byHash.get(e.args.decisionHash)?.wallet_label === "team";
+        const external = rows.filter((e) => !isTeam(e));
+        const teamRows = rows.filter(isTeam);
+        return { tier: name, external: { count: external.length, usdc: sum(external) }, team: { count: teamRows.length, usdc: sum(teamRows) } };
       }),
       escalations: {
         total: queued.length,
@@ -70,7 +77,7 @@ export async function evidence() {
       tier: TIERS[Number(e.args.tier)],
       payee: e.args.payee,
       usdc: usd(BigInt(e.args.amount)),
-      label: byHash.get(e.args.decisionHash)?.wallet_label ?? null,
+      label: team.has(String(e.args.payee).toLowerCase()) ? "team" : (byHash.get(e.args.decisionHash)?.wallet_label ?? null),
     })),
     escalations: queued.map((q) => ({ id: q.args.id, tx: q.tx_hash, url: txUrl(q.tx_hash), payee: q.args.payee, usdc: usd(BigInt(q.args.amount)), reason: q.args.reason, outcome: outcome.get(String(q.args.id)) ?? "pending" })),
     attempts: at.slice(0, 200).map((a) => ({ ...a, commit_url: a.commit_tx ? txUrl(a.commit_tx) : null })),

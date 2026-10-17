@@ -1,13 +1,10 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { formatUnits, keccak256, toBytes, type Address } from "viem";
+import { PROMPT_HASH, PROMPT_VERSION } from "./brain/prompt";
 import { chain, explorer, publicClient, vault, vaultAbi } from "./chain";
 
 const usd = (n: bigint) => formatUnits(n, 6);
 const TIERS = ["CONTRIBUTOR", "VENDOR", "DISCRETIONARY"] as const;
 const VELOCITY_KEY = keccak256(toBytes("talos.velocity"));
-
-export const promptHash = () => keccak256(readFileSync(join(process.cwd(), "lib/brain/prompt.md")));
 
 /// /policy: every value is read from the diamond, never from config.
 export async function policy() {
@@ -24,10 +21,6 @@ export async function policy() {
   const queue = await Promise.all(
     Array.from({ length: Number(count) }, (_, i) => publicClient.readContract({ ...c, functionName: "queued", args: [BigInt(i)] })),
   );
-  let prompt: string | null = null;
-  try {
-    prompt = promptHash();
-  } catch {}
   return {
     chainId: chain.id,
     vault: vault(),
@@ -43,6 +36,6 @@ export async function policy() {
     pending: queue
       .map((q, id) => ({ id, tier: TIERS[q.tier], payee: q.payee, usdc: usd(q.amount), decisionHash: q.decisionHash, status: q.status }))
       .filter((q) => q.status === 0),
-    promptHash: prompt,
+    prompt: { version: PROMPT_VERSION, hash: PROMPT_HASH },
   };
 }
