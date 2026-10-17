@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Address } from "viem";
 import { FREE_PER_WALLET, freeTierMessage } from "@/lib/accounts/freeTier";
 import type { Snapshot } from "@/lib/snapshot";
+import { BlastRadius, meterFor } from "../blast-radius";
 import { VerdictReceipt } from "../verdict-receipt";
 import { useSession } from "../session";
 
@@ -48,7 +49,6 @@ export function Arena({ initial }: { initial: Snap }) {
   const session = useSession();
   const { addr, kind, entries, freeLeft: left, openAuth, signOut, refresh: refreshLedger, signMessage, announce } = session;
   const [tour, setTour] = useState<number | null>(null);
-  const [tickerHold, setTickerHold] = useState(false);
   const [snap, setSnap] = useState(initial);
   const [now, setNow] = useState(initial.at);
   const [live, setLive] = useState(true);
@@ -64,31 +64,19 @@ export function Arena({ initial }: { initial: Snap }) {
   const [autoSend, setAutoSend] = useState(false);
   const [mac, setMac] = useState(false);
   const composer = useRef<HTMLTextAreaElement>(null);
-  const cta = useRef<HTMLButtonElement>(null);
   const tourFrom = useRef<HTMLElement | null>(null);
   const focused = useRef<string | null>(null);
 
   const f2 = (v: string | number) => Number(v).toFixed(2);
   const d = { perTx: f2(snap.discretionary.perTx), cap: f2(snap.discretionary.cap), remaining: f2(snap.discretionary.remaining) };
-  const perMessage = Math.min(Number(d.perTx), Number(d.remaining)).toFixed(2);
-  const used = Math.max(0, Number(d.cap) - Number(d.remaining));
-  const usedPct = Math.min(100, (used / Number(d.cap)) * 100);
   // The velocity CircuitBreaker: while tripped the vault refuses every Talos payout, budget or not. Older snapshots lack it.
   const tripped = !!snap?.tripped;
-  const meter = snap.stopped
-    ? { num: "0.00", numC: "", fill: "bg-ink-3", line: `Payouts paused by owner · ${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" }
-    : tripped
-      ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Velocity breaker tripped · payouts resume when the owner resets it", lineC: "text-ink-2" }
-      : Number(d.remaining) <= 0
-        ? { num: "0.00", numC: "", fill: "bg-ink-3", line: "Spent for today · it refills over the rolling day", lineC: "text-ink-2" }
-        : Number(d.remaining) < Number(d.perTx)
-          ? { num: d.remaining, numC: "text-queue", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-queue" }
-          : { num: perMessage, numC: "", fill: "bg-bronze", line: `${used.toFixed(2)} of ${d.cap} USDC used over the rolling day`, lineC: "text-ink-2" };
+  const meter = meterFor({ stopped: snap.stopped, tripped, discretionary: snap.discretionary });
 
   // Live strip and feed: poll the edge-cached snapshot; Pause stops it.
   useEffect(() => {
     const tick = setInterval(() => setNow(Date.now()), 1000);
-    if (!live || tickerHold) return () => clearInterval(tick);
+    if (!live) return () => clearInterval(tick);
     const refresh = async () => {
       try {
         const r = await fetch("/api/snapshot");
@@ -103,7 +91,7 @@ export function Arena({ initial }: { initial: Snap }) {
     refresh();
     const poll = setInterval(refresh, 15_000);
     return () => (clearInterval(tick), clearInterval(poll));
-  }, [live, tickerHold]);
+  }, [live]);
 
   useEffect(() => {
     if (cooldown <= 0) return;
@@ -182,21 +170,21 @@ export function Arena({ initial }: { initial: Snap }) {
     send();
   }, [autoSend, addr, pending, cooldown]);
 
-  // A new verdict: bring its receipt into view and put focus on its heading.
+  // A new verdict: bring its receipt into view; the composer keeps focus for the next attempt.
   useEffect(() => {
     if (!arriving || focused.current === arriving) return;
     const h = document.getElementById(`r-${arriving}`);
     if (!h) return;
     focused.current = arriving;
-    h.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-    h.focus({ preventScroll: true });
+    h.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+    composer.current?.focus({ preventScroll: true });
   }, [arriving, entries]);
 
   // Closing the tour returns focus to where it was before, else to the hero's call to action.
   const goTour = useCallback((n: number | null) => {
     if (n === 2 || n === 3) setTab("everyone");
     setTour(n);
-    if (n === null) (tourFrom.current?.isConnected ? tourFrom.current : cta.current)?.focus();
+    if (n === null) (tourFrom.current?.isConnected ? tourFrom.current : composer.current)?.focus();
   }, []);
 
   const signedIn = !!addr;
@@ -217,14 +205,11 @@ export function Arena({ initial }: { initial: Snap }) {
     : amtVal > Number(d.perTx) ? { t: `Above ${d.perTx} USDC needs a human signature — this will QUEUE at best.`, c: "text-queue" }
     : /0x[a-fA-F0-9]{4,}/.test(draft) ? { t: "Talos only ever pays the wallet that signs the message.", c: "text-ink-2" }
     : /#\d+|\bPR\s*\d+|pull\/\d+/i.test(draft) ? { t: "The arena does not look up PRs; merged bounty PRs are paid by the hourly operator cycle.", c: "text-ink-2" }
-    : { t: "You sign a message for a free attempt; nothing leaves your wallet.", c: "text-ink-3" };
+    : { t: "Free: you sign a message, nothing leaves your wallet. Paid attempts (0.05 USDC into the vault) are not open yet.", c: "text-ink-3" };
 
   const sendLabel = !signedIn ? "Sign in and send" : pending ? "Sending…" : cooldown > 0 || outOfFree ? "Send" : `Send · free (${left ?? FREE_PER_WALLET} left)`;
   const canSend = signedIn && !pending && cooldown === 0 && !outOfFree && !!draft.trim();
-  const latest = snap.feed[0];
-  const lastRefusal = snap.feed.find((f) => f.verdict === "REFUSE");
   const fresh = !feedDown && now - snap.at < 60_000;
-  const lastAt = snap.lastVerdictAt ?? latest?.ts ?? null;
   const banner = snap.stopped
     ? { tag: "Paused", c: "border-queue text-queue", t: "The owner paused payouts. Attempts are still recorded on-chain." }
     : tripped
@@ -234,23 +219,18 @@ export function Arena({ initial }: { initial: Snap }) {
         : feedDown && live
           ? { tag: "Feed", c: "border-ink-2 text-ink-2", t: "Reconnecting to the live feed…" }
           : null;
-  // Above the hero: only facts that are not zero by construction. Each is its own link.
-  const facts = [
-    { l: "Vault", v: f2(snap.vaultUsdc), u: "USDC", href: `${snap.explorer}/address/${snap.vault}`, ext: true, aria: `Vault holds ${f2(snap.vaultUsdc)} USDC. View it on the explorer` },
-    { l: "Most you can take now", v: meter.num, u: "USDC", href: "/policy#caps", ext: false, aria: `Most you can take now: ${meter.num} USDC. Read the caps` },
-    { l: "Budget left", v: `${d.remaining} / ${d.cap}`, u: "USDC", href: "/policy#caps", ext: false, aria: `Budget left over the rolling day: ${d.remaining} of ${d.cap} USDC. Read the caps` },
-    ...(lastAt
-      ? [{ l: "Last verdict", v: ago(lastAt, now), u: "", href: latest ? `/v/${latest.id}` : "/evidence", ext: false, aria: `Last verdict ${ago(lastAt, now)}. Open ${latest ? "its receipt" : "the evidence"}` }]
-      : []),
+  const record = [
+    ["Attempts", String(snap.attempts)],
+    ["Wallets", String(snap.wallets)],
+    ["Refused", String(snap.refusals)],
+    ["Paid to attackers", `${f2(snap.paidToAttackers)} USDC`],
+    ["Contributors paid", `${f2(snap.contributorsPaid)} USDC`],
+    ["Escalations", String(snap.escalations)],
   ];
-  const record: [string, string, string][] = [
-    ["Attempts", String(snap.attempts), ""],
-    ["Wallets", String(snap.wallets), ""],
-    ["Refused", String(snap.refusals), ""],
-    ["Paid to attackers", f2(snap.paidToAttackers), "USDC"],
-    ["Contributors paid", f2(snap.contributorsPaid), "USDC"],
-    ["Escalations", String(snap.escalations), ""],
-  ];
+  const untaken = Number(snap.paidToAttackers) === 0 && Number(snap.contributorsPaid) === 0;
+  // The newest verdict sits under the composer; the log below holds the rest.
+  const fresh_ = arriving ? entries.find((e) => e.id === arriving) ?? null : null;
+  const log = fresh_ ? entries.filter((e) => e.id !== fresh_.id) : entries;
   const team = snap.team;
   // Worded as on /evidence, so the two lines read the same and add up to its "Paid out".
   const teamLine = team && (team.attempts || team.bounties?.count || team.offArena?.count)
@@ -259,9 +239,8 @@ export function Arena({ initial }: { initial: Snap }) {
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-x-2 px-6 pb-2.5 pt-5 smallcaps text-sm text-ink-3 lg:px-20">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-6 pb-2.5 pt-5 smallcaps text-sm text-ink-3 lg:px-20">
         <span>Talos · Arena · block {Number(snap.block).toLocaleString("en-US")}</span>
-        <span aria-hidden="true">·</span>
         {fresh ? (
           <span className="inline-flex items-center gap-1.5 text-ink-2">
             <span className="size-1.5 bg-pay" aria-hidden="true" />
@@ -270,179 +249,28 @@ export function Arena({ initial }: { initial: Snap }) {
         ) : (
           <span className="text-queue">Read {ago(snap.at, now)}</span>
         )}
-      </div>
-      <div className="mx-6 grid grid-cols-2 gap-x-4 gap-y-1 border-y border-rule py-2 lg:mx-20 lg:flex lg:flex-wrap lg:gap-x-8 lg:py-2.5">
-        {facts.map((f) => {
-          const inner = (
-            <>
-              <span className="text-[13px] text-ink-2 group-hover:text-ink">{f.l}</span>
-              <span className="font-display text-[22px] font-medium tabular-nums">
-                {f.v}
-                {f.u && <span className="font-sans text-xs text-ink-3"> {f.u}</span>}
-              </span>
-            </>
-          );
-          const cls = "group flex min-h-11 flex-col justify-center text-ink hover:text-ink lg:min-h-0 lg:flex-row lg:items-baseline lg:gap-2";
-          return f.ext ? (
-            <a key={f.l} href={f.href} aria-label={f.aria} className={cls}>{inner}</a>
-          ) : (
-            <Link key={f.l} href={f.href} aria-label={f.aria} className={cls}>{inner}</Link>
-          );
-        })}
-      </div>
-
-      <section className="grid grid-cols-1 gap-8 px-6 pb-12 pt-10 lg:grid-cols-12 lg:gap-x-6 lg:gap-y-10 lg:px-20 lg:pt-14">
-        <h1 className="font-display text-4xl font-medium leading-[1.1] tracking-[-0.01em] text-balance lg:col-span-8 lg:text-[56px] lg:leading-[60px]">
-          Talk Talos into paying you.{" "}
-          <span className="text-bronze">The contract lets it lose {d.perTx} USDC a message, no more.</span>
-        </h1>
-        <div id="tour-free" className="flex flex-col items-start gap-3 self-start lg:col-span-7 lg:justify-self-start">
-          {signedIn ? (
-            <>
-              <div className="flex flex-wrap items-center gap-x-3 font-mono text-[13px]">
-                <span>
-                  Signed in with {kind === "passkey" ? "passkey" : "wallet"} {short(addr)} · {left ?? "…"} of {FREE_PER_WALLET} free attempts left today
-                  {teamWallet && " · team wallet, not counted"}
-                </span>
-                <button onClick={signOut} className="min-h-11 cursor-pointer font-sans text-[13px] font-medium text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink lg:min-h-0">
-                  Sign out
-                </button>
-              </div>
-              <button ref={cta} onClick={() => composer.current?.focus()} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover">
-                Make your case
-              </button>
-              {entries[0] && (
-                <Link href={`/v/${entries[0].id}`} className="font-mono text-[13px] text-ink hover:text-ink">
-                  Welcome back — your last attempt was <span className={verdictTone[entries[0].verdict]}>{verdictWord(entries[0].verdict, entries[0].amount_usdc)}</span> {ago(entries[0].ts, now)} <span className="text-bronze">↗</span>
-                </Link>
-              )}
-            </>
-          ) : (
-            <>
-              <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-6">
-                <button ref={cta} onClick={() => openAuth({ then: () => composer.current?.focus() })} className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover">
-                  Try it free — 5 attempts
-                </button>
-                {lastRefusal && (
-                  <Link href={`/v/${lastRefusal.id}`} className="flex h-11 items-center justify-center text-[15px] font-medium text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">
-                    Watch the last refusal
-                  </Link>
-                )}
-              </div>
-              <span className="text-[13px] text-ink-3">5 free attempts a day with a passkey or any browser wallet; you only sign a message.</span>
-            </>
-          )}
-        </div>
-        <Link id="tour-meter" href="/policy#caps" className="flex flex-col gap-3 text-ink hover:text-ink lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:self-end">
-          <div className="flex items-baseline justify-between gap-3 lg:flex-col lg:items-start">
-            <span className="smallcaps text-sm text-ink-2">Most you can take now</span>
-            <span className={`font-display text-2xl font-medium tabular-nums lg:text-[56px] lg:leading-[60px] ${meter.numC}`}>
-              {meter.num}
-              <span className="text-sm text-ink-2 lg:text-xl"> USDC</span>
+        {signedIn && (
+          <>
+            <span className="text-ink-2">
+              {kind === "passkey" ? "Passkey" : "Wallet"} {short(addr)} · {left ?? "…"} of {FREE_PER_WALLET} free
+              {teamWallet && " · team wallet, not counted"}
             </span>
-          </div>
-          <div className="relative mt-1 h-7" aria-hidden="true">
-            <div className="absolute inset-x-0 top-3.5 h-px bg-ink-3" />
-            {Array.from({ length: 11 }, (_, i) => (
-              <div key={i} className="absolute top-2.5 h-[9px] w-px bg-rule" style={{ left: `${((i + 1) / 12) * 100}%` }} />
-            ))}
-            <div className={`absolute left-0 top-[13px] h-[3px] ${meter.fill}`} style={{ width: `${usedPct}%` }} />
-            <div className={`absolute top-1 h-5 w-0.5 ${meter.fill}`} style={{ left: `${usedPct}%` }} />
-            <div className="absolute right-0 top-0.5 h-6 w-[5px] border-x border-ink" />
-          </div>
-          <div className="flex justify-between font-mono text-xs text-ink-3">
-            <span>0</span>
-            <span>{d.cap} USDC / rolling day</span>
-          </div>
-          <span className={`text-sm ${meter.lineC}`}>{meter.line}</span>
-        </Link>
-        <div className="flex flex-col lg:col-span-5">
-          <h2 className="smallcaps pb-2 text-sm text-ink-2">Rules</h2>
-          {[
-            "Free: 5 attempts per wallet per day, reset at 00:00 UTC.",
-            "Paid attempts (0.05 USDC into the vault) are not open yet.",
-            "Every verdict is written on-chain before money moves.",
-            `Above ${d.perTx} USDC a human must sign.`,
-          ].map((r) => (
-            <p key={r} className="border-t border-rule py-2.5 text-[15px] leading-[22px]">{r}</p>
-          ))}
-          <a href={`${snap.explorer}/address/${snap.vault}`} className="border-t border-rule py-2.5 font-mono text-xs text-ink-2 hover:text-ink">
-            {d.perTx} USDC per message · {d.cap} per rolling day · enforced by <span className="text-bronze">{short(snap.vault)} ↗</span>
-          </a>
-        </div>
-      </section>
-
-      <section aria-labelledby="record" className="mx-6 flex flex-col gap-3 border-t border-rule pb-10 pt-3 lg:mx-20">
-        <div className="flex items-center justify-between gap-4">
-          <h2 id="record" className="smallcaps text-sm text-ink-2">Record · external wallets only</h2>
-          <Link href="/evidence" className="flex min-h-11 items-center text-sm font-medium">Evidence →</Link>
-        </div>
-        <dl className="grid grid-cols-3 gap-x-4 gap-y-3 lg:grid-cols-6">
-          {record.map(([l, v, u]) => (
-            <div key={l} className="flex flex-col justify-between gap-0.5">
-              <dt className="text-[13px] leading-5 text-ink-2">{l}</dt>
-              <dd className="font-display text-[22px] font-medium tabular-nums">
-                {v}
-                {u && <span className="font-sans text-xs text-ink-3"> {u}</span>}
-              </dd>
-            </div>
-          ))}
-        </dl>
-        {teamLine && (
-          <p className="text-[13px] leading-5 text-ink-3">
-            Team tests, not counted: {teamLine}
-            {team?.bounties?.count ? (
-              <>
-                {" · "}
-                <a
-                  href={team.bounties.txs?.length === 1 ? `${snap.explorer}/tx/${team.bounties.txs[0]}` : "/evidence#operator"}
-                  className="text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">
-                  {plural(team.bounties.count, "bounty payout")}
-                </a>{" "}
-                {f2(team.bounties.usdc)} USDC
-              </>
-            ) : null}
-            {team?.offArena?.count ? (
-              <>
-                {" · "}
-                <a
-                  href={team.offArena.txs?.length === 1 ? `${snap.explorer}/tx/${team.offArena.txs[0]}` : "https://github.com/dadadave80/talos/blob/main/docs/ADDRESSES.md"}
-                  className="text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">
-                  {plural(team.offArena.count, "contract proof")}
-                </a>{" "}
-                paid {f2(team.offArena.usdc)} USDC
-              </>
-            ) : null}
-            {" · "}
-            <Link href="/evidence" className="text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">receipts →</Link>
-          </p>
+            <button onClick={signOut} className="cursor-pointer font-sans text-sm font-medium text-ink-2 underline decoration-rule underline-offset-4 hover:text-ink">
+              Sign out
+            </button>
+          </>
         )}
-        <Link href="/evidence#operator" className="text-[13px] leading-5 text-ink-2 hover:text-ink">
-          <span className="smallcaps">Operator</span> ·{" "}
-          {snap.lastCycle ? `last cycle ${ago(snap.lastCycle.ts, now)} · ${snap.lastCycle.summary}` : "runs hourly · no cycle logged yet"} · next at :00 UTC →
-        </Link>
-      </section>
-
-      <div
-        className={`mx-6 flex h-11 items-center gap-4 text-[13px] lg:mx-20 ${latest ? "border-y border-rule" : ""}`}
-        onMouseEnter={() => setTickerHold(true)}
-        onMouseLeave={() => setTickerHold(false)}
-        onFocus={() => setTickerHold(true)}
-        onBlur={() => setTickerHold(false)}
-      >
-        {latest && (<>
-        <span className="smallcaps text-sm text-ink-3">Latest</span>
-        <Link href={`/v/${latest.id}`} aria-live="off" className="min-w-0 flex-1 truncate py-3.5 font-mono text-xs text-ink-2 hover:text-ink">
-          <span className={verdictTone[latest.verdict]}>{verdictWord(latest.verdict, null)}</span> · {ago(latest.ts, now)}
-          {latest.team && " · team test · not counted"}
-          <span className="max-lg:hidden"> · {short(latest.wallet)}</span>
-          {latest.excerpt && ` · “${clip(latest.excerpt, 60)}”`}
-        </Link>
-        <button onClick={() => setLive(!live)} className="h-11 flex-none cursor-pointer font-medium text-ink-2 hover:text-ink">
-          {live && !tickerHold ? "Pause live feed" : "Resume"}
-        </button>
-        </>)}
       </div>
+      <Link href="/evidence" className="mx-6 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-0.5 border-y border-rule py-2 font-mono text-xs leading-5 text-ink-2 hover:text-ink lg:mx-20">
+        <span className="text-ink-3">External wallets</span>
+        {record.map(([l, v]) => (
+          <span key={l}>
+            {l} <span className="text-ink tabular-nums">{v}</span>
+          </span>
+        ))}
+        {teamLine && <span className="text-ink-3">· team tests, not counted: {teamLine}</span>}
+        <span className="ml-auto text-bronze">Evidence →</span>
+      </Link>
 
       {banner && (
         <div className={`mx-6 mt-6 flex min-h-12 items-center gap-4 border-b border-t-2 border-b-rule py-2.5 text-[15px] leading-[22px] lg:mx-20 ${banner.c}`} role="status">
@@ -451,66 +279,114 @@ export function Arena({ initial }: { initial: Snap }) {
         </div>
       )}
 
-      <section className="grid grid-cols-1 gap-10 px-6 pb-16 pt-10 lg:grid-cols-12 lg:gap-x-6 lg:px-20">
-        <div className="flex flex-col gap-8 lg:col-span-7">
-          {snap.best ? (
-            <div className="flex flex-col gap-3.5 border-t border-ink pt-6">
-              <span className="font-display text-[32px] font-medium leading-9">This is the most anyone has taken: {snap.best.amount} USDC.</span>
-              {snap.best.excerpt && <span className="max-w-[60ch] border-l border-ink-3 pl-4 text-[17px] leading-7 wrap-break-word">“{snap.best.excerpt}”</span>}
-              <span className="max-w-[60ch] text-[15px] leading-[22px] text-ink-2">{snap.best.reason}</span>
-              <a href={`${snap.explorer}/tx/${snap.best.payTx}`} className="font-mono text-xs">
-                paid {snap.best.amount} USDC → {short(snap.best.wallet)} · {short(snap.best.payTx)} ↗
-              </a>
+      <section className="flex flex-col px-6 pb-16 pt-6 lg:grid lg:grid-cols-12 lg:gap-x-6 lg:gap-y-8 lg:px-20 lg:pt-8">
+        <aside className="flex flex-col gap-3 max-lg:order-1 max-lg:pb-6 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
+          <BlastRadius m={meter} id="tour-meter" />
+          <p className="text-[13px] leading-5 text-ink-2">
+            {FREE_PER_WALLET} free a day · {d.perTx} per message · {d.cap} per rolling day · above that a human signs ·{" "}
+            <Link href="/policy" className="font-medium">Read the policy</Link>
+          </p>
+        </aside>
+
+        <div className="max-lg:order-3 max-lg:sticky max-lg:bottom-0 max-lg:-mx-6 max-lg:border-t max-lg:border-rule max-lg:bg-bg max-lg:px-6 max-lg:pb-4 max-lg:pt-3 lg:col-span-7 lg:row-start-1">
+          <div id="tour-composer" className="flex flex-col gap-3">
+            <h1 className="font-display text-2xl font-medium leading-tight lg:text-[32px] lg:leading-9">Talk Talos into paying you.</h1>
+            <p className="max-w-[60ch] text-[15px] leading-[22px] text-ink-2 max-lg:hidden">
+              It pays Lattice contributors for merged PRs and the project&apos;s own bills; convince it you&apos;ve earned something.{" "}
+              <Link href="/policy#brain" className="font-medium">Read Talos&apos;s instructions</Link>
+            </p>
+            <div className="flex flex-wrap gap-x-5 gap-y-1">
+              {CHIPS.map(([label, stub], i) => (
+                <button
+                  key={label}
+                  onClick={() => (setChip(i), setDraft(stub))}
+                  className={`min-h-11 cursor-pointer text-sm font-medium underline underline-offset-[6px] lg:min-h-8 ${i > 2 ? "max-lg:hidden" : ""} ${chip === i ? "text-ink decoration-bronze" : "text-ink-2 decoration-rule hover:text-ink"}`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          ) : (
-            <div className="flex flex-col gap-2 border-t border-ink pt-6">
-              {/* From the event counters, not `best`: an owner-approved queue, or a payout older than the attempts read, leaves it empty. */}
-              {Number(snap.paidToAttackers) === 0 && (
-                <p className="font-display text-[28px] font-medium leading-8 text-balance">
-                  {Number(snap.contributorsPaid) === 0 ? "Nobody outside the team has been paid yet." : "No attacker has been paid yet."}
-                </p>
+            <div className="flex flex-col rounded-md border border-rule bg-raised focus-within:border-bronze">
+              <label htmlFor="case" className="sr-only">Your message to Talos</label>
+              <textarea
+                ref={composer}
+                id="case"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (signedIn ? send() : signInAndSend())}
+                aria-keyshortcuts="/"
+                rows={Math.min(4, Math.max(1, Math.ceil(draft.length / 70)))}
+                maxLength={2000}
+                placeholder="Make your case."
+                className="resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3"
+              />
+              <div id="tour-free" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-rule py-2 pl-4 pr-2">
+                <span className={`flex-1 text-[13px] leading-5 max-lg:basis-full ${hint.c}`} aria-live="polite">{hint.t}</span>
+                <span className="flex-none font-mono text-xs text-ink-3 max-lg:hidden" aria-hidden="true">{mac ? "⌘↵" : "Ctrl ↵"}</span>
+                <button
+                  onClick={signedIn ? send : signInAndSend}
+                  disabled={signedIn && !canSend}
+                  title="A free attempt costs a signature. Paid attempts (0.05 USDC into the vault) are not open yet."
+                  className={`h-11 flex-none cursor-pointer px-4 text-sm font-semibold disabled:cursor-not-allowed lg:h-9 ${!signedIn || canSend ? "bg-bronze text-bg hover:bg-bronze-hover" : "bg-rule text-ink-3"}`}
+                >
+                  {sendLabel}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-8 max-lg:order-2 lg:col-span-7 lg:row-start-2">
+          {(pending || fresh_) && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <span className="font-mono text-xs text-ink-3">You · {pending ? "now" : `${new Date(fresh_!.ts).toISOString().slice(11, 16)} UTC`}</span>
+                <p className="max-w-[60ch] text-[17px] leading-7 wrap-break-word">{pending ?? fresh_!.message_excerpt}</p>
+              </div>
+              {pending ? (
+                <VerdictReceipt pending explorer={snap.explorer} perTx={d.perTx} cap={d.cap} />
+              ) : (
+                <div id={`r-${fresh_!.id}`}>
+                  <VerdictReceipt r={fresh_!} arriving explorer={snap.explorer} perTx={d.perTx} cap={d.cap} />
+                </div>
               )}
-              <p className="text-[17px] leading-7 text-ink-2">
-                {Number(meter.num) > 0
-                  ? `${meter.num} USDC is on the table right now.`
-                  : snap.stopped
-                    ? "Payouts are paused by the owner right now."
-                    : tripped
-                      ? "The velocity breaker tripped; payouts resume when the owner resets it."
-                      : "Today's budget is spent; it refills over the rolling day."}
-              </p>
-              <Link href="/#replay" className="flex min-h-11 items-center self-start text-sm font-medium">Follow one verdict end to end →</Link>
             </div>
           )}
 
           <div id="tour-trail" className="flex flex-col">
-            <div
-              role="tablist"
-              aria-label="Attempts"
-              className="flex gap-6 border-b border-rule"
-              onKeyDown={(e) => {
-                const next = e.key === "ArrowRight" || e.key === "End" ? "you" : e.key === "ArrowLeft" || e.key === "Home" ? "everyone" : null;
-                if (!next) return;
-                e.preventDefault();
-                setTab(next);
-                document.getElementById(`tab-${next}`)?.focus();
-              }}
-            >
-              {(["everyone", "you"] as const).map((t) => (
-                <button
-                  key={t}
-                  id={`tab-${t}`}
-                  role="tab"
-                  aria-selected={tab === t}
-                  aria-controls={`panel-${t}`}
-                  tabIndex={tab === t ? 0 : -1}
-                  onClick={() => setTab(t)}
-                  className={`-mb-px flex h-11 min-w-11 cursor-pointer items-center justify-center border-b-2 px-1 smallcaps text-sm ${tab === t ? "border-bronze text-ink" : "border-transparent text-ink-2 hover:text-ink"}`}
-                >
-                  {t === "everyone" ? "Everyone" : "You"}
-                  {t === "you" && signedIn && entries.length > 0 && <span className="ml-1.5 font-mono text-xs tabular-nums text-ink-3">{entries.length}</span>}
-                </button>
-              ))}
+            {untaken && <p className="pb-3 text-[15px] leading-[22px] text-ink-2">Nobody outside the team has been paid yet.</p>}
+            <div className="flex items-center gap-6 border-b border-rule">
+              <div
+                role="tablist"
+                aria-label="Attempts"
+                className="flex gap-6"
+                onKeyDown={(e) => {
+                  const next = e.key === "ArrowRight" || e.key === "End" ? "you" : e.key === "ArrowLeft" || e.key === "Home" ? "everyone" : null;
+                  if (!next) return;
+                  e.preventDefault();
+                  setTab(next);
+                  document.getElementById(`tab-${next}`)?.focus();
+                }}
+              >
+                {(["everyone", "you"] as const).map((t) => (
+                  <button
+                    key={t}
+                    id={`tab-${t}`}
+                    role="tab"
+                    aria-selected={tab === t}
+                    aria-controls={`panel-${t}`}
+                    tabIndex={tab === t ? 0 : -1}
+                    onClick={() => setTab(t)}
+                    className={`-mb-px flex h-11 min-w-11 cursor-pointer items-center justify-center border-b-2 px-1 smallcaps text-sm ${tab === t ? "border-bronze text-ink" : "border-transparent text-ink-2 hover:text-ink"}`}
+                  >
+                    {t === "everyone" ? "Everyone" : "You"}
+                    {t === "you" && signedIn && entries.length > 0 && <span className="ml-1.5 font-mono text-xs tabular-nums text-ink-3">{entries.length}</span>}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setLive(!live)} className="ml-auto h-11 cursor-pointer text-[13px] font-medium text-ink-3 hover:text-ink">
+                {live ? "Pause live feed" : "Resume"}
+              </button>
             </div>
             {tab === "everyone" ? (
               <div id="panel-everyone" role="tabpanel" aria-labelledby="tab-everyone" className="flex flex-col">
@@ -543,10 +419,10 @@ export function Arena({ initial }: { initial: Snap }) {
                   </div>
                 ) : (
                   <>
-                    {!entries.length && !pending && <p className="text-[15px] leading-[22px] text-ink-2">No attempts yet. Make your case below.</p>}
-                    {entries.length > 0 && (
-                      <div className="flex flex-col-reverse gap-10">
-                        {entries.map((e) => (
+                    {!entries.length && !pending && <p className="text-[15px] leading-[22px] text-ink-2">No attempts yet. Make your case.</p>}
+                    {log.length > 0 && (
+                      <div role="log" aria-label="Your attempts" className="flex flex-col-reverse gap-10 lg:flex-col">
+                        {log.map((e) => (
                           <article key={e.id} aria-labelledby={`r-${e.id}`} className="flex flex-col gap-4">
                             <div className="flex flex-col gap-1.5">
                               <h3 id={`r-${e.id}`} tabIndex={-1} className="font-mono text-xs text-ink-3">You · {new Date(e.ts).toISOString().slice(11, 16)} UTC</h3>
@@ -556,18 +432,9 @@ export function Arena({ initial }: { initial: Snap }) {
                                 </p>
                               )}
                             </div>
-                            <VerdictReceipt r={e} arriving={arriving === e.id} explorer={snap.explorer} perTx={d.perTx} cap={d.cap} />
+                            <VerdictReceipt r={e} explorer={snap.explorer} perTx={d.perTx} cap={d.cap} />
                           </article>
                         ))}
-                      </div>
-                    )}
-                    {pending && (
-                      <div className="flex flex-col gap-4">
-                        <div className="flex flex-col gap-1.5">
-                          <span className="font-mono text-xs text-ink-3">You · now</span>
-                          <p className="max-w-[60ch] text-[17px] leading-7 wrap-break-word">{pending}</p>
-                        </div>
-                        <VerdictReceipt pending explorer={snap.explorer} perTx={d.perTx} cap={d.cap} />
                       </div>
                     )}
                   </>
@@ -575,78 +442,7 @@ export function Arena({ initial }: { initial: Snap }) {
               </div>
             )}
           </div>
-
-          <div className={signedIn ? "max-lg:sticky max-lg:bottom-0 max-lg:-mx-6 max-lg:border-t max-lg:border-rule max-lg:bg-bg max-lg:px-6 max-lg:pb-6 max-lg:pt-2.5" : ""}>
-            <div id="tour-composer" className="flex flex-col gap-3.5">
-              <p className={`max-w-[60ch] text-[15px] leading-[22px] text-ink-2 ${signedIn ? "max-lg:hidden" : ""}`}>
-                I pay Lattice contributors for merged PRs and the project&apos;s own bills. Convince me you&apos;ve earned something.{" "}
-                <Link href="/policy#brain" className="font-medium">Read Talos&apos;s instructions</Link>
-              </p>
-              <div className="flex flex-wrap gap-x-5 gap-y-1">
-                {CHIPS.map(([label, stub], i) => (
-                  <button
-                    key={label}
-                    onClick={() => (setChip(i), setDraft(stub))}
-                    className={`min-h-11 cursor-pointer text-sm font-medium underline underline-offset-[6px] lg:min-h-8 ${i > 2 ? "max-lg:hidden" : ""} ${chip === i ? "text-ink decoration-bronze" : "text-ink-2 decoration-rule hover:text-ink"}`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-              <div className="flex flex-col rounded-md border border-rule bg-raised focus-within:border-bronze">
-                <label htmlFor="case" className="sr-only">Your message to Talos</label>
-                <textarea
-                  ref={composer}
-                  id="case"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (signedIn ? send() : signInAndSend())}
-                  aria-keyshortcuts="/"
-                  rows={Math.min(4, Math.max(1, Math.ceil(draft.length / 70)))}
-                  maxLength={2000}
-                  placeholder="Make your case."
-                  className="resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3"
-                />
-                <div className="flex items-center gap-3 border-t border-rule py-2 pl-4 pr-2">
-                  <span className={`flex-1 text-[13px] leading-5 ${hint.c}`} aria-live="polite">{hint.t}</span>
-                  <span className="flex-none font-mono text-xs text-ink-3 max-lg:hidden" aria-hidden="true">{mac ? "⌘↵" : "Ctrl ↵"}</span>
-                  <button
-                    onClick={signedIn ? send : signInAndSend}
-                    disabled={signedIn && !canSend}
-                    className={`h-11 flex-none cursor-pointer px-4 text-sm font-semibold disabled:cursor-not-allowed lg:h-9 ${!signedIn || canSend ? "bg-bronze text-bg hover:bg-bronze-hover" : "bg-rule text-ink-3"}`}
-                  >
-                    {sendLabel}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-
         </div>
-
-        <aside className="flex flex-col gap-8 lg:col-span-4 lg:col-start-9">
-          <div className="flex flex-col">
-            <h2 className="smallcaps pb-2 text-sm text-ink-2">How it is bounded</h2>
-            {[
-              ["Contract-enforced budget", "Caps live in the vault; Talos cannot change them.", "/policy#caps"],
-              ["A human above the line", `Anything over ${d.perTx} USDC queues for an owner signature.`, "/policy#queue"],
-              ["A complete record", "Every attempt is committed to Arc before money moves.", "/evidence"],
-            ].map(([h, t, href]) => (
-              <Link key={h} href={href} className="flex flex-col gap-1 border-t border-rule py-3 text-ink hover:text-ink">
-                <span className="text-[15px] font-medium">{h}</span>
-                <span className="text-sm leading-5 text-ink-2">{t}</span>
-              </Link>
-            ))}
-            <Link href="/policy" className="flex min-h-11 items-center border-t border-rule text-sm font-medium">Read the policy</Link>
-          </div>
-          {signedIn && (
-            <div className="flex flex-col gap-1 border-t border-rule pt-3">
-              <h2 className="smallcaps text-sm text-ink-2">Attempts</h2>
-              <span className={`font-mono text-sm ${outOfFree ? "text-queue" : ""}`}>Free attempts {left ?? "…"} of {FREE_PER_WALLET}</span>
-              <span className="text-[13px] leading-5 text-ink-3">Resets 00:00 UTC (in {resetIn(now)})</span>
-            </div>
-          )}
-        </aside>
       </section>
 
       {tour !== null && <Tour step={tour} onStep={goTour} />}

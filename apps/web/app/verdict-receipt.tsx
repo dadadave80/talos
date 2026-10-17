@@ -123,7 +123,7 @@ export function VerdictReceipt({ r, pending, arriving, page, explorer, perTx, ca
           {r.commit_tx && <Check k="Decision hash committed" v={short(r.commit_tx)} href={tx(r.commit_tx)} />}
         </div>
       )}
-      <Trail rows={rows} />
+      <Trail rows={rows} land={!!arriving} />
       {!page && (
         <div className="flex flex-wrap items-center gap-x-5">
           <ShareActions r={r} />
@@ -146,11 +146,11 @@ function Check({ k, v, href }: { k: string; v: string; href?: string }) {
   return href ? <a href={href} className={cls}>{body}</a> : <div className={cls}>{body}</div>;
 }
 
-function Trail({ rows }: { rows: Row[] }) {
+function Trail({ rows, land = false }: { rows: Row[]; land?: boolean }) {
   const color = { pending: "text-ink-2 underline decoration-dotted decoration-ink-3 underline-offset-4", landed: "text-ink", none: "text-ink-3", fail: "text-refuse" };
   return (
     <div className="flex flex-col border-t border-rule">
-      {rows.map((row) => {
+      {rows.map((row, i) => {
         const body = (
           <>
             <span className="smallcaps text-sm text-ink-3">{row.k}</span>
@@ -158,8 +158,9 @@ function Trail({ rows }: { rows: Row[] }) {
             <span className={`text-bronze ${row.href ? "" : "opacity-0"}`}>↗</span>
           </>
         );
-        const cls = "grid min-h-11 grid-cols-[64px_minmax(0,1fr)_16px] items-center gap-3 border-b border-rule";
-        return row.href ? <a key={row.k} href={row.href} className={cls}>{body}</a> : <div key={row.k} className={cls}>{body}</div>;
+        const cls = `grid min-h-11 grid-cols-[64px_minmax(0,1fr)_16px] items-center gap-3 border-b border-rule ${land ? "land" : ""}`;
+        const style = land ? { animationDelay: `${120 + i * 140}ms` } : undefined;
+        return row.href ? <a key={row.k} href={row.href} className={cls} style={style}>{body}</a> : <div key={row.k} className={cls} style={style}>{body}</div>;
       })}
     </div>
   );
