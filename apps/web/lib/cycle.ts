@@ -3,7 +3,8 @@ import { Tier } from "./chain";
 import { db } from "./db";
 import { gatewayDeposit, x402Buy } from "./ops/vendor";
 import { agentAccount } from "./signers/send";
-import { checkPrMerged, getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
+import { bountyPrs } from "./bounty";
+import { getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
 
 const REPO = "dadadave80/lattice";
 const MIN_GAS = usdc(2);
@@ -20,22 +21,17 @@ const wallets = () =>
       .map(([login, addr]) => [login.toLowerCase(), getAddress(addr)] as [string, Address]),
   );
 
-async function nextBountyPr() {
-  const res = await fetch(`https://api.github.com/repos/${REPO}/pulls?state=closed&sort=updated&direction=desc&per_page=50`, {
-    headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: "application/vnd.github+json" },
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error(`github ${res.status}`);
-  const prs: { number: number; merged_at: string | null; html_url: string; labels: { name: string }[] }[] = await res.json();
-  const candidates = prs.filter((p) => p.merged_at && p.labels.some((l) => /^bounty:\d+(\.\d+)?$/.test(l.name)));
+/// The next bounty not yet claimed (claims are keyed on the bounty's source: the issue, or the PR's own label).
+async function nextBounty() {
+  const candidates = await bountyPrs(REPO);
   if (!candidates.length) return null;
   const { data: done } = await db()
     .from("ops")
     .select("ref")
     .eq("kind", "contributor")
-    .in("ref", candidates.map((p) => p.html_url));
+    .in("ref", candidates.map((b) => b.ref));
   const seen = new Set((done ?? []).map((d) => d.ref));
-  return candidates.find((p) => !seen.has(p.html_url)) ?? null;
+  return candidates.find((b) => !seen.has(b.ref)) ?? null;
 }
 
 const FLOAT = usdc(1); // vault -> ops float per top-up, well inside VENDOR 5/tx, 10/day
@@ -74,32 +70,33 @@ async function runVendor() {
 export async function runCycle() {
   const sb = db();
   const log = (kind: string, detail: object, extra: object = {}) => sb.from("ops").insert({ kind, detail, ...extra });
-  const b = await getBalances();
-  if (b.agentGasUsdc < MIN_GAS || b.hotGasUsdc < usdc(0.5)) {
-    await log("gas-low", { agent: b.agentGasUsdc.toString(), hot: b.hotGasUsdc.toString() });
+  const bal = await getBalances();
+  if (bal.agentGasUsdc < MIN_GAS || bal.hotGasUsdc < usdc(0.5)) {
+    await log("gas-low", { agent: bal.agentGasUsdc.toString(), hot: bal.hotGasUsdc.toString() });
     return { stopped: "gas below floor; owner tops up" };
   }
 
   const vendor = await runVendor().catch((e) => ({ vendor: `error: ${String(e).slice(0, 200)}` }));
-  const pr = await nextBountyPr();
-  if (!pr) return { ...vendor, contributor: "no unpaid bounty PRs" };
-  const info = await checkPrMerged(REPO, pr.number);
-  const payee = wallets().get(info.author.toLowerCase());
+  const b = await nextBounty();
+  if (!b) return { ...vendor, contributor: "no unpaid bounty PRs" };
+  const payee = wallets().get(b.author.toLowerCase());
+  const base = { author: b.author, bounty: b.usdc, pr: b.url };
 
-  // Claim the PR first: the unique index on (ref) where kind='contributor' makes a second run a no-op.
-  const { error: claimed } = await sb.from("ops").insert({ kind: "contributor", ref: info.url, detail: { author: info.author, bounty: info.bountyUsdc, state: "claimed" } });
-  if (claimed) return { ...vendor, contributor: `already handled ${info.url}` };
-  if (!info.merged || !info.bountyUsdc || !payee) {
-    await sb.from("ops").update({ detail: { author: info.author, state: payee ? "not-merged" : "no-wallet-on-file" } }).eq("kind", "contributor").eq("ref", info.url);
-    return { ...vendor, contributor: `skipped ${info.url}` };
+  // Claim the bounty first: the unique index on (ref) where kind='contributor' makes a second run, or a second PR
+  // closing the same issue, a no-op.
+  const { error: claimed } = await sb.from("ops").insert({ kind: "contributor", ref: b.ref, detail: { ...base, state: "claimed" } });
+  if (claimed) return { ...vendor, contributor: `already handled ${b.ref}` };
+  if (!payee) {
+    await sb.from("ops").update({ detail: { ...base, state: "no-wallet-on-file" } }).eq("kind", "contributor").eq("ref", b.ref);
+    return { ...vendor, contributor: `skipped ${b.url}: no wallet on file for ${b.author}` };
   }
 
   const intent: Intent = {
-    attemptId: `pr-${REPO}-${pr.number}`,
+    attemptId: `pr-${REPO}-${b.number}`,
     tier: Tier.CONTRIBUTOR,
     payee,
-    amount: usdc(info.bountyUsdc),
-    reason: `Merged PR ${info.url} by ${info.author}, label bounty:${info.bountyUsdc}`,
+    amount: usdc(b.usdc),
+    reason: `Merged PR ${b.url} by ${b.author}, bounty:${b.usdc}${b.ref === b.url ? "" : ` from ${b.ref}`}`,
     model: MODEL,
   };
   const why = await precheckPay(intent);
@@ -109,9 +106,9 @@ export async function runCycle() {
     .update({
       decision_hash: r?.decisionHash ?? null,
       tx: r && "payTx" in r ? r.payTx : (r?.commitTx ?? null),
-      detail: { author: info.author, bounty: info.bountyUsdc, payee, state: !r ? `blocked: ${why}` : "payTx" in r ? (r.failed ? `pay reverted: ${r.failed}` : "paid") : "queued", commitTx: r?.commitTx },
+      detail: { ...base, payee, state: !r ? `blocked: ${why}` : "payTx" in r ? (r.failed ? `pay reverted: ${r.failed}` : "paid") : "queued", commitTx: r?.commitTx },
     })
     .eq("kind", "contributor")
-    .eq("ref", info.url);
-  return { ...vendor, contributor: info.url, outcome: !r ? why : "payTx" in r ? (r.failed ?? "paid") : "queued" };
+    .eq("ref", b.ref);
+  return { ...vendor, contributor: b.url, outcome: !r ? why : "payTx" in r ? (r.failed ?? "paid") : "queued" };
 }

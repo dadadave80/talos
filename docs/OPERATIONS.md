@@ -55,6 +55,12 @@ Schedule `revokeSessionKey(old)` and `registerSessionKey(new, 0, expiry, [commit
 `.github/workflows/cycle.yml` runs hourly and on demand (Actions → operator-cycle → Run workflow). Repo secret
 `CRON_SECRET`, repo variable `TALOS_URL`. A failed run is not retried; the next hour picks up where it left off.
 
+## Bounties
+Label a Lattice issue `bounty:N` (labels `bounty:2`, `bounty:3`, `bounty:4` exist). A merged PR that closes it
+("Closes #335") inherits the bounty; no PR label needed. A `bounty:N` label on the PR itself overrides. One payment per
+issue. The author's payout address goes in `CONTRIBUTOR_WALLETS` (`login:0x…`); non-allowlisted payees are queued
+for the owner.
+
 ## Cut list log
 Applied Sat 17 Oct 01:20 UTC+1: Phase 2's exit gate (testnet `pay()` proven) is more than 30 minutes past its
 anchor, waiting on Circle keys and testnet funding.

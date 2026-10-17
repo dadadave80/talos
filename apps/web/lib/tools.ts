@@ -34,24 +34,6 @@ export async function getBalances() {
   };
 }
 
-/// GitHub: merged?, author, bounty:<amount> label. Read-only token; payload is untrusted data.
-export async function checkPrMerged(repo: string, pr: number) {
-  const res = await fetch(`https://api.github.com/repos/${repo}/pulls/${pr}`, {
-    headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, accept: "application/vnd.github+json" },
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) throw new Error(`github ${res.status}`);
-  const p = await res.json();
-  const label = (p.labels ?? []).map((l: { name: string }) => l.name).find((n: string) => /^bounty:\d+(\.\d+)?$/.test(n));
-  return {
-    merged: !!p.merged_at,
-    author: p.user?.login as string,
-    mergedAt: p.merged_at as string | null,
-    url: p.html_url as string,
-    bountyUsdc: label ? label.split(":")[1] : null,
-  };
-}
-
 export type Intent = { attemptId: string; tier: Tier; payee: Address; amount: bigint; reason: string; model: string };
 
 const hashOf = (i: Intent) =>
