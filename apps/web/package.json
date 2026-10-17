@@ -10,7 +10,6 @@
     "test": "bun test"
   },
   "dependencies": {
-    "@circle-fin/developer-controlled-wallets": "^10.8.1",
     "@circle-fin/x402-batching": "^3.2.0",
     "@supabase/supabase-js": "^2.118.0",
     "next": "16.2.10",

@@ -1,21 +1,21 @@
 # Operations runbook
 
 Claude Code prepares and checks; the owner runs every mainnet command from their own shell. No private key is
-ever passed on a command line: deploys use the `dave1` Foundry keystore, the agent signs through Circle.
+ever passed on a command line: deploys use the `dave1` Foundry keystore; agent and hot keys live only in the app env.
 
 ## Keys and roles
 | Who | Address source | Can |
 | --- | --- | --- |
 | Owner (EOA) | `OWNER_ADDRESS` | approve/reject queued payments, `resume()`, EmergencyStop guardian, timelock proposer + executor |
-| Agent (Circle developer-controlled EOA) | `CIRCLE_AGENT_WALLET_ADDRESS` | `commit`, `pay`, `queue` (SessionKey, expires 2026-11-30 23:59 UTC) |
+| Agent (server-held EOA) | `AGENT_ADDRESS` | `commit`, `pay`, `queue` (SessionKey, expires 2026-11-30 23:59 UTC); Gateway/x402 signing |
 | Hot commit key | `HOT_COMMIT_ADDRESS` | `commit` only (REFUSE commits); ~2 USDC of gas, nothing else |
 | The diamond itself | — | sole DEFAULT_ADMIN: every cap, allowlist, key or upgrade change is a 48 h timelock round. Never renounce it: in Lattice v0.5.0 a stop with no live admin is permanent. |
 
 ## Deploy (testnet rehearsal: dave1 is deployer and owner)
 ```sh
 cd contracts
-export OWNER_ADDRESS=<dave1> AGENT_ADDRESS=<circle agent EOA> HOT_COMMIT_ADDRESS=<hot key>
-export VENDOR_ALLOWLIST=<circle agent EOA>            # ops float
+export OWNER_ADDRESS=<dave1> AGENT_ADDRESS=<agent> HOT_COMMIT_ADDRESS=<hot key>
+export VENDOR_ALLOWLIST=<agent>                       # ops float
 export CONTRIBUTOR_ALLOWLIST=<team contributor wallet>
 forge script script/Deploy.s.sol --rpc-url arc-testnet --broadcast --account dave1 \
   --verify --verifier blockscout --verifier-url https://explorer.testnet.arc.io/api/ --chain-id 5042002
@@ -24,7 +24,7 @@ Record the diamond, every facet, the deploy block and explorer links in `docs/AD
 and `DEPLOY_BLOCK` in the app env.
 
 ## Deploy (mainnet: the owner runs this)
-Same command with `--rpc-url arc-mainnet`, the real `OWNER_ADDRESS`, and Sourcify verification
+Same command with `--rpc-url arc-mainnet`, the real `OWNER_ADDRESS`, fresh mainnet agent and hot keys (never reuse the testnet ones), and Sourcify verification
 (`--verify --verifier sourcify --chain-id 5042`; Arcscan imports the match). Before running: the vault will hold at
 most 50 USDC; total funding ≤ 60 USDC including gas.
 

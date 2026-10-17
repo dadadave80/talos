@@ -3,8 +3,7 @@ import { PROMPT_HASH } from "./brain/prompt";
 import { chain, publicClient, Tier, USDC, vault, vaultAbi, Verdict } from "./chain";
 import { decisionHash } from "./ledger/decision";
 import { budgetKey } from "./ledger/evidence";
-import { circleSend } from "./signers/circle";
-import { hotSend } from "./signers/hot";
+import { agentAccount, hotAccount, sendFrom } from "./signers/send";
 
 const VELOCITY_KEY = keccak256(toBytes("talos.velocity"));
 const erc20 = parseAbi(["function balanceOf(address) view returns (uint256)"]);
@@ -13,8 +12,8 @@ const c = () => ({ address: vault(), abi: vaultAbi }) as const;
 export const attemptRef = (attemptId: string) => keccak256(toBytes(attemptId));
 
 export async function getBalances() {
-  const agent = process.env.CIRCLE_AGENT_WALLET_ADDRESS as Address;
-  const hot = process.env.HOT_COMMIT_ADDRESS as Address;
+  const agent = agentAccount().address;
+  const hot = hotAccount().address;
   const [vaultUsdc, agentGas, hotGas, tripped, stopped, ...avail] = await Promise.all([
     publicClient.readContract({ address: USDC, abi: erc20, functionName: "balanceOf", args: [vault()] }),
     publicClient.readContract({ address: USDC, abi: erc20, functionName: "balanceOf", args: [agent] }),
@@ -88,9 +87,9 @@ export async function precheckPay(i: Intent): Promise<string | null> {
   return null;
 }
 
-const send = (data: Hex, ref: string) => circleSend(vault(), data, ref);
+const send = (data: Hex, _ref: string) => sendFrom(agentAccount(), vault(), data);
 
-/// commit(PAY) then pay(), both from the agent's Circle EOA. A failed pay() (cap, blocklisted payee, anything)
+/// commit(PAY) then pay(), both from the agent key. A failed pay() (cap, blocklisted payee, anything)
 /// is a failed attempt: the decision hash is never retried.
 export async function pay(i: Intent) {
   const h = hashOf(i);
@@ -117,7 +116,7 @@ export async function queueForHuman(i: Intent) {
 /// commit(REFUSE) from the hot commit-only key.
 export async function refuse(i: Intent) {
   const h = hashOf(i);
-  const commitTx = await hotSend(vault(), encodeFunctionData({ abi: vaultAbi, functionName: "commit", args: [h, Verdict.REFUSE, attemptRef(i.attemptId)] }));
+  const commitTx = await sendFrom(hotAccount(), vault(), encodeFunctionData({ abi: vaultAbi, functionName: "commit", args: [h, Verdict.REFUSE, attemptRef(i.attemptId)] }));
   return { decisionHash: h, commitTx };
 }
 

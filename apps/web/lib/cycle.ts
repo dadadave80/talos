@@ -2,6 +2,7 @@ import { getAddress, type Address } from "viem";
 import { Tier } from "./chain";
 import { db } from "./db";
 import { gatewayDeposit, x402Buy } from "./ops/vendor";
+import { agentAccount } from "./signers/send";
 import { checkPrMerged, getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
 
 const REPO = "dadadave80/lattice";
@@ -39,7 +40,7 @@ async function nextBountyPr() {
 
 const FLOAT = usdc(1); // vault -> ops float per top-up, well inside VENDOR 5/tx, 10/day
 
-/// VENDOR flow: vault pays the ops float (the agent's own Circle EOA, VENDOR-allowlisted at init) at most once a
+/// VENDOR flow: vault pays the ops float (the agent's own address, VENDOR-allowlisted at init) at most once a
 /// day, the agent deposits it into Gateway, then buys one metered search per cycle over x402. Every leg is on the
 /// ops log with its tx or settlement id.
 async function runVendor() {
@@ -49,7 +50,7 @@ async function runVendor() {
   const since = new Date(Date.now() - 86_400_000).toISOString();
   const { data: floats } = await sb.from("ops").select("id").eq("kind", "vendor-float").gte("ts", since).limit(1);
   if (!floats?.length) {
-    const agent = process.env.CIRCLE_AGENT_WALLET_ADDRESS as Address;
+    const agent = agentAccount().address;
     const intent: Intent = { attemptId: `float-${since.slice(0, 13)}`, tier: Tier.VENDOR, payee: agent, amount: FLOAT, reason: "Daily ops float for metered x402 services (Gateway deposit)", model: MODEL };
     const why = await precheckPay(intent);
     if (why) return { vendor: `float blocked: ${why}` };

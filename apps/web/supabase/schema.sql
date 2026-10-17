@@ -80,21 +80,21 @@ language sql as $$
   select exists (select 1 from up);
 $$;
 
--- Hot commit-key nonce. One row; the update serialises concurrent senders. On any nonce error the sender calls
--- sync_hot_nonce with the chain's pending nonce and retries.
-create table if not exists hot_nonce (
+-- Per-key transaction nonce (agent key, hot key). One row per address; the update serialises concurrent senders. On any nonce error the sender calls
+-- sync_nonce with the chain's pending nonce and retries.
+create table if not exists tx_nonce (
   address text primary key,
   next bigint not null
 );
 
-create or replace function take_hot_nonce(p_address text) returns bigint
+create or replace function take_nonce(p_address text) returns bigint
 language sql as $$
-  update hot_nonce set next = next + 1 where address = lower(p_address) returning next - 1;
+  update tx_nonce set next = next + 1 where address = lower(p_address) returning next - 1;
 $$;
 
-create or replace function sync_hot_nonce(p_address text, p_next bigint) returns void
+create or replace function sync_nonce(p_address text, p_next bigint) returns void
 language sql as $$
-  insert into hot_nonce (address, next) values (lower(p_address), p_next)
+  insert into tx_nonce (address, next) values (lower(p_address), p_next)
   on conflict (address) do update set next = excluded.next; -- the chain's pending nonce is authoritative
 $$;
 
@@ -103,7 +103,7 @@ alter table ops enable row level security;
 alter table counters enable row level security;
 alter table nonces enable row level security;
 alter table last_message enable row level security;
-alter table hot_nonce enable row level security;
+alter table tx_nonce enable row level security;
 
 -- Diamond events, mirrored from the chain by lib/ledger/events.ts (Arc caps eth_getLogs below 10k blocks, so the
 -- mirror is incremental). Rebuildable at any time by truncating and resetting the cursor to the deploy block.

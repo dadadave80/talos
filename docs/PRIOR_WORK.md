@@ -16,5 +16,6 @@
 | File in this repo | Origin | Change |
 | --- | --- | --- |
 | `apps/web/lib/brain/llm.ts` | engye `lib/llm.ts` (pre-Tameion) | single role; strict JSON schema on gpt-oss; env names |
+| `apps/web/lib/signers/send.ts` | engye's server-held EOA signer pattern (pre-Tameion) | Supabase-backed nonces for concurrent serverless senders |
 
 Any Lattice facet patched during the event gets a labelled upstream PR and a line here.

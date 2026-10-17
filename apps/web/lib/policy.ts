@@ -10,7 +10,7 @@ const VELOCITY_KEY = keccak256(toBytes("talos.velocity"));
 export async function policy() {
   const c = { address: vault(), abi: vaultAbi } as const;
   const keys = [
-    { role: "agent (commit, pay, queue)", address: process.env.CIRCLE_AGENT_WALLET_ADDRESS },
+    { role: "agent (commit, pay, queue)", address: process.env.AGENT_ADDRESS },
     { role: "hot (commit only)", address: process.env.HOT_COMMIT_ADDRESS },
   ].filter((k): k is { role: string; address: Address } => !!k.address);
   const [p, delay, stopped, tripped, count, ...validity] = await Promise.all([
