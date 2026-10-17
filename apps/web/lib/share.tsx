@@ -214,7 +214,7 @@ export async function closingSlide() {
       </div>
       <div style={{ marginTop: "auto", display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 48 }}>
         <span style={{ fontSize: 28, lineHeight: "40px", color: C.ink2, maxWidth: 1000 }}>
-          {`${network} (USDC gas) · built on Lattice · in progress: Circle Modular Wallets, Facilitator Service, Gateway`}
+          {`${network} (USDC gas) · built on Lattice · live: Circle Modular Wallets passkeys, Gateway + x402 · not built: Facilitator Service`}
         </span>
         <span style={{ fontFamily: M, fontSize: 32, flexShrink: 0 }}>{HOST}</span>
       </div>
