@@ -56,7 +56,12 @@ Schedule `revokeSessionKey(old)` and `registerSessionKey(new, 0, expiry, [commit
 `CRON_SECRET`, repo variable `TALOS_URL`. A failed run is not retried; the next hour picks up where it left off.
 
 ## Cut list log
-None applied yet.
+Applied Sat 17 Oct 01:20 UTC+1: Phase 2's exit gate (testnet `pay()` proven) is more than 30 minutes past its
+anchor, waiting on Circle keys and testnet funding.
+1. `talos-primitives` repo → not built; DecisionLedgerFacet stays in this repo.
+2. Leaderboard → the counters on `/evidence` are enough.
+3. CCTP payout to Base → all contributors are paid on Arc.
+4. Owner notification card → the owner polls `/policy` for the pending queue.
 
 ## Safe owner path (not used)
 The owner is an EOA for speed. A Safe could hold OWNER_ROLE, the guardian role and the timelock roles instead;

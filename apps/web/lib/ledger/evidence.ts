@@ -1,6 +1,6 @@
 import { encodeAbiParameters, formatUnits, keccak256 } from "viem";
 import { publicClient, Tier, txUrl, vault, vaultAbi } from "../chain";
-import { db } from "../db";
+import { all, db } from "../db";
 import { syncEvents } from "./events";
 
 export const budgetKey = (tier: Tier) =>
@@ -15,9 +15,9 @@ const TIERS = ["CONTRIBUTOR", "VENDOR", "DISCRETIONARY"] as const;
 export async function evidence() {
   const head = await syncEvents();
   const sb = db();
-  const [{ data: events }, { data: attempts }, { data: ops }] = await Promise.all([
-    sb.from("chain_events").select("tx_hash,block,name,args").order("block", { ascending: false }),
-    sb.from("attempts").select("*").order("ts", { ascending: false }).limit(5000),
+  const [events, attempts, { data: ops }] = await Promise.all([
+    all((f, t) => sb.from("chain_events").select("tx_hash,block,log_index,name,args").order("block", { ascending: false }).order("log_index").range(f, t)),
+    all((f, t) => sb.from("attempts").select("*").order("ts", { ascending: false }).order("id").range(f, t)),
     sb.from("ops").select("*").order("ts", { ascending: false }).limit(500),
   ]);
   const ev = events ?? [];

@@ -24,6 +24,10 @@ See [docs/PRIOR_WORK.md](docs/PRIOR_WORK.md).
 - **Payment logic is unit-tested against a mock token; the real-USDC path runs under Arc Foundry.** Stock Foundry cannot execute Arc's USDC precompile. `test/ArcUsdc.t.sol` forks Arc testnet and pays real USDC under `arc-forge`; it is skipped under plain `forge`. Testnet and mainnet transactions are recorded in docs/ADDRESSES.md.
 - **Decision hashes bind chain and deployment.** The preimage is `abi.encode(chainid, vault, attemptId, payee, amount, tier, keccak(reason), modelId, keccak(prompt))`; the contract stores only the hash, and the shared vector is checked in Solidity and TypeScript.
 - `RateLimiter.consume` is unguarded upstream, so it is deliberately not cut.
+- **Hosting:** the public launch runs on Vercel's Hobby plan; tolls are revenue to an open-source treasury, so Pro is the correct plan under Vercel's terms. The build is identical.
+- **Testnet VENDOR purchases hit a Circle x402 test endpoint, not Exa** (Exa settles on Arc mainnet only). The ops log records the URL of every purchase.
+- **Owner bounties come from the same vault** through `approveQueued`: only items the agent queued are payable, capped at 20 USDC per approval and 40 per rolling day, each linked on-chain to its decision.
+- **Cut for time:** talos-primitives repo, leaderboard, CCTP payout to Base, owner push notification (docs/OPERATIONS.md).
 
 ## Layout
 - `contracts/` — Foundry; Lattice pinned at `v0.5.0` in `contracts/lib/lattice`

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { FREE_GLOBAL_PER_DAY, FREE_PER_WALLET, verifyFreeTier } from "@/lib/accounts/freeTier";
-import { attempt } from "@/lib/arena";
+import { attempt, takeSlot } from "@/lib/arena";
 import { chain, publicClient, vault } from "@/lib/chain";
 import { db } from "@/lib/db";
 
@@ -29,6 +29,7 @@ export async function POST(req: Request) {
   );
   if (!wallet) return Response.json({ error: "signature does not verify" }, { status: 401 });
 
+  if (!(await takeSlot(wallet))) return Response.json({ error: "one message per 20 seconds" }, { status: 429 });
   const sb = db();
   const { error: replay } = await sb.from("nonces").insert({ wallet: wallet.toLowerCase(), nonce: b.free.nonce });
   if (replay) return Response.json({ error: "nonce already used" }, { status: 409 });

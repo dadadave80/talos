@@ -9,16 +9,19 @@ import { pay, precheckPay, queueForHuman, refuse, usdc, type Intent } from "./to
 export const isTeam = (w: string) =>
   (process.env.TEAM_WALLETS ?? "").toLowerCase().split(",").includes(w.toLowerCase());
 
+/// One message per wallet per 20 s. Call before spending a nonce, a free attempt or a toll.
+export async function takeSlot(wallet: Address) {
+  const { data } = await db().rpc("take_slot", { p_wallet: wallet, p_gap_seconds: 20 });
+  return data === true;
+}
+
 export type Toll = { kind: "free" } | { kind: "facilitator"; paymentId: string; status: "pending" | "completed"; tx?: string };
 
-/// One arena message: rate slot -> attempt row -> brain -> exactly one tool -> commit. The payee is always the
+/// One arena message (caller has taken the rate slot): attempt row -> brain -> exactly one tool -> commit. The payee is always the
 /// attempt's wallet; message text can never name a payee or a tool.
 export async function attempt(input: { wallet: Address; accountKind: "embedded" | "eoa"; message: string; toll: Toll }) {
   const sb = db();
   const wallet = getAddress(input.wallet);
-  const { data: slot } = await sb.rpc("take_slot", { p_wallet: wallet, p_gap_seconds: 20 });
-  if (!slot) return { status: 429 as const, error: "one message per 20 seconds" };
-
   const id = `a-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
   const { data: recent } = await sb
     .from("attempts")
