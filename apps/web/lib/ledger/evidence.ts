@@ -1,5 +1,5 @@
-import { encodeAbiParameters, formatUnits, keccak256 } from "viem";
-import { publicClient, Tier, txUrl, vault, vaultAbi } from "../chain";
+import { encodeAbiParameters, erc20Abi, formatUnits, keccak256 } from "viem";
+import { publicClient, Tier, txUrl, USDC, vault, vaultAbi } from "../chain";
 import { all, db } from "../db";
 import { syncEvents } from "./events";
 
@@ -34,9 +34,10 @@ export async function evidence() {
   for (const e of ev) if (e.name === "Approved" || e.name === "Rejected") outcome.set(String(e.args.id), e.name);
   const tolls = ext.filter((a) => a.toll_kind === "facilitator" && a.toll_status === "completed");
 
-  const [available, params] = await Promise.all([
+  const [available, params, vaultUsdc] = await Promise.all([
     publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "getAvailable", args: [budgetKey(Tier.DISCRETIONARY)] }),
     publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "params" }),
+    publicClient.readContract({ address: USDC, abi: erc20Abi, functionName: "balanceOf", args: [vault()] }),
   ]);
 
   return {
@@ -69,6 +70,7 @@ export async function evidence() {
         rejected: queued.filter((q) => outcome.get(String(q.args.id)) === "Rejected").length,
       },
       onchainCommits: commits.length,
+      vaultUsdc: usd(vaultUsdc),
       blastRadius: { remaining: usd(available), cap: usd(params.dailyCap[Tier.DISCRETIONARY]), perTx: usd(params.perTxCap[Tier.DISCRETIONARY]) },
     },
     payments: paid.map((e) => ({

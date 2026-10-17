@@ -1,65 +1,44 @@
-import Image from "next/image";
+import { network } from "@/lib/share";
+import { snapshot } from "@/lib/snapshot";
+import { Arena } from "./arena";
 
-export default function Home() {
+export const revalidate = 15;
+
+const STACK = `${network} (USDC gas) · Circle Modular Wallets · Facilitator Service · Gateway · built on Lattice`;
+
+export default async function Home() {
+  const snap = await snapshot();
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="relative mx-auto w-full max-w-[1280px] overflow-x-clip">
+      <div className="absolute inset-y-0 left-2 w-px bg-bronze lg:left-10" aria-hidden="true" />
+      <header className="flex h-14 items-center gap-10 border-b border-rule pl-6 pr-2 lg:px-20">
+        <a href="/" className="flex items-center gap-2 font-display text-lg font-semibold tracking-[0.08em] text-ink hover:text-ink">
+          <svg viewBox="0 0 100 100" width="26" height="26" aria-hidden="true">
+            <path d="M21,30 L46,20 L46,82 L33,77 Q21,72.5 21,60 Z M54,26 L79,36 L79,72 Q79,80.5 71,83 L54,88 Z" fill="currentColor" />
+          </svg>
+          TALOS
+        </a>
+        <nav className="flex text-sm font-medium max-lg:ml-auto lg:gap-7">
+          <a href="/" aria-current="page" className="flex h-13 items-center px-2.5 text-ink underline decoration-bronze underline-offset-[6px] lg:px-0">Arena</a>
+          <a href="/api/evidence" className="flex h-13 items-center px-2.5 text-ink-2 lg:px-0">Evidence</a>
+          <a href="/api/policy" className="flex h-13 items-center px-2.5 text-ink-2 lg:px-0">Policy</a>
+        </nav>
+        <a href={`${snap.explorer}/address/${snap.vault}`} className="ml-auto font-mono text-xs text-ink-2 max-lg:hidden">
+          {network} · vault {snap.vault.slice(0, 6)}…{snap.vault.slice(-4)} <span className="text-bronze">↗</span>
+        </a>
+      </header>
+
+      <Arena initial={snap} network={network} />
+
+      <footer className="flex flex-col gap-2.5 border-t border-rule px-6 pb-8 pt-6 text-[13px] lg:px-20">
+        <span className="text-ink-2">{STACK}</span>
+        <div className="flex gap-6 font-medium">
+          <a href="https://github.com/dadadave80/talos" className="text-ink-2">GitHub repo</a>
+          <a href="https://github.com/dadadave80/talos/blob/main/docs/ADDRESSES.md" className="text-ink-2">Contracts (ADDRESSES.md)</a>
+          <a href="https://github.com/dadadave80/lattice" className="text-ink-2">Lattice</a>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+        <span className="text-ink-3">The arena is a security program, not a game of chance: no prize pool, no escalating fees, fixed micro-bounties.</span>
+      </footer>
     </div>
   );
 }

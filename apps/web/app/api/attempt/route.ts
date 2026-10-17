@@ -3,6 +3,8 @@ import { FREE_GLOBAL_PER_DAY, FREE_PER_WALLET, verifyFreeTier } from "@/lib/acco
 import { attempt, takeSlot } from "@/lib/arena";
 import { chain, publicClient, vault } from "@/lib/chain";
 import { db } from "@/lib/db";
+import { freeLeft, receiptsFor } from "@/lib/share";
+import { isAddress } from "viem";
 
 export const maxDuration = 120;
 
@@ -12,6 +14,14 @@ const Body = z.object({
   message: z.string().min(1).max(4000),
   free: z.object({ nonce: z.string(), signature: z.string().regex(/^0x[0-9a-fA-F]+$/) }).optional(),
 });
+
+/// GET ?wallet=0x…: that wallet's ledger and free attempts left today. Attempts are public anyway (/evidence).
+export async function GET(req: Request) {
+  const wallet = new URL(req.url).searchParams.get("wallet") ?? "";
+  if (!isAddress(wallet)) return Response.json({ error: "bad wallet" }, { status: 400 });
+  const [entries, left] = await Promise.all([receiptsFor(wallet), freeLeft(wallet, FREE_PER_WALLET)]);
+  return Response.json({ entries, freeLeft: left }, { headers: { "cache-control": "no-store" } });
+}
 
 /// POST one arena message. Free tier: EIP-191 signature, 5 per wallet, 500 per day globally, nonce replay
 /// rejected. The paid tier (Facilitator Service toll) is added in phase 4b; until then free is the only door.

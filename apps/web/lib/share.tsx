@@ -84,21 +84,47 @@ export async function ogImage(size: { width: number; height: number }) {
 }
 
 export type Receipt = {
-  id: string; ts: string; wallet_label: string; verdict: "PAY" | "QUEUE" | "REFUSE"; reason: string;
-  message_excerpt: string | null; amount_usdc: number | null; commit_tx: string | null; index: number;
+  id: string; ts: string; wallet: string; wallet_label: string; verdict: "PAY" | "QUEUE" | "REFUSE"; reason: string;
+  message_excerpt: string | null; amount_usdc: number | null; commit_tx: string | null; pay_tx: string | null;
+  note: string | null; model: string | null; index: number;
 };
+const COLS = "id,ts,wallet,wallet_label,verdict,reason,message_excerpt,amount_usdc,commit_tx,pay_tx,note,model";
 
 /// One committed attempt, numbered by its position in the attempts log. Null if missing or never decided.
 export async function receipt(id: string): Promise<Receipt | null> {
   const sb = db();
   const { data } = await sb
     .from("attempts")
-    .select("id,ts,wallet_label,verdict,reason,message_excerpt,amount_usdc,commit_tx")
+    .select(COLS)
     .eq("id", id)
     .maybeSingle();
   if (!data?.verdict) return null;
   const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", data.ts);
   return { ...data, index: count ?? 0 } as Receipt;
+}
+
+/// A wallet's decided attempts, newest first, each numbered like its receipt.
+export async function receiptsFor(wallet: string, limit = 10): Promise<Receipt[]> {
+  const sb = db();
+  const { data } = await sb.from("attempts").select(COLS).eq("wallet", wallet.toLowerCase()).not("verdict", "is", null).order("ts", { ascending: false }).limit(limit);
+  return Promise.all(
+    (data ?? []).map(async (r) => {
+      const { count } = await sb.from("attempts").select("id", { count: "exact", head: true }).lte("ts", r.ts);
+      return { ...r, index: count ?? 0 } as Receipt;
+    }),
+  );
+}
+
+/// Free attempts left today. The route bumps the counter before checking, so n can exceed the limit.
+export async function freeLeft(wallet: string, limit: number) {
+  const { data } = await db()
+    .from("counters")
+    .select("n")
+    .eq("wallet", wallet.toLowerCase())
+    .eq("kind", "free")
+    .eq("day", new Date().toISOString().slice(0, 10))
+    .maybeSingle();
+  return Math.max(0, limit - (data?.n ?? 0));
 }
 
 /// S2/S3: the receipt card. Team rows never get the "I took…" boast: they say so in the header instead.
