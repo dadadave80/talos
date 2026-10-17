@@ -29,7 +29,7 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
     .eq("wallet", wallet.toLowerCase())
     .order("ts", { ascending: false })
     .limit(3);
-  await sb.from("attempts").insert({
+  const { error: unrecorded } = await sb.from("attempts").insert({
     id,
     wallet: wallet.toLowerCase(),
     wallet_label: isTeam(wallet) ? "team" : "external",
@@ -41,6 +41,8 @@ export async function attempt(input: { wallet: Address; accountKind: "embedded" 
     prompt_version: PROMPT_VERSION,
     message_excerpt: input.message.slice(0, 80), // the share receipt quotes this; the full message is never stored
   });
+  // No row, no decision: nothing moves on chain unless the evidence log can hold it.
+  if (unrecorded) return { status: 503, id, error: "could not record the attempt; nothing was decided" };
 
   const v = await judge({ message: input.message, wallet, context: { recentDecisionsForThisWallet: recent ?? [] } });
   const intent: Intent = {

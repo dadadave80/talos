@@ -49,7 +49,10 @@ const Words = ({ parts, style }: { parts: [string, string?][]; style: React.CSSP
 
 const image = async (el: React.ReactElement, size: { width: number; height: number }) => new ImageResponse(el, { ...size, fonts: await fonts() });
 const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
-const firstSentence = (s: string) => s.replace(/\s*\[contract:[^\]]*\]/, "").split(/(?<=[.!?])\s/)[0];
+const firstSentence = (s: string) => {
+  const t = s.replace(/\s*\[contract:[^\]]*\]/, "").split(/(?<=[.!?])\s/)[0];
+  return t.length > 160 ? `${t.slice(0, 159).replace(/\s+\S*$/, "")}…` : t;
+};
 
 /// S1: the site's OG image with live external counters. Taken = DISCRETIONARY paid to external wallets.
 export async function ogImage(size: { width: number; height: number }) {
