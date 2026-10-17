@@ -11,23 +11,27 @@
   --ink-2: #b0aa9f;
   --ink-3: #8a857b;
   --bronze: #c48a52;
+  --bronze-hover: #d6a06a;
   --pay: #66b39b;
   --queue: #d0a453;
   --refuse: #c56b55;
   --focus: #f2c79a;
+  --scrim: rgb(20 18 15 / 0.6);
   color-scheme: dark;
 }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg: #f4f0e8; --raised: #ebe5da; --rule: #d3cbbd; --ink: #1e1b16; --ink-2: #555046; --ink-3: #6b655b;
-    --bronze: #8f5b2c; --pay: #2e7a62; --queue: #8a6413; --refuse: #a8432e; --focus: #b5793f;
+    --bronze: #8f5b2c; --bronze-hover: #75491f; --pay: #2a7059; --queue: #805c10; --refuse: #a8432e; --focus: #a46c37;
+    --scrim: rgb(30 27 22 / 0.35);
     color-scheme: light;
   }
 }
 :root[data-theme="light"] {
   --bg: #f4f0e8; --raised: #ebe5da; --rule: #d3cbbd; --ink: #1e1b16; --ink-2: #555046; --ink-3: #6b655b;
-  --bronze: #8f5b2c; --pay: #2e7a62; --queue: #8a6413; --refuse: #a8432e; --focus: #b5793f;
+  --bronze: #8f5b2c; --bronze-hover: #75491f; --pay: #2a7059; --queue: #805c10; --refuse: #a8432e; --focus: #a46c37;
+  --scrim: rgb(30 27 22 / 0.35);
   color-scheme: light;
 }
 
@@ -39,10 +43,12 @@
   --color-ink-2: var(--ink-2);
   --color-ink-3: var(--ink-3);
   --color-bronze: var(--bronze);
+  --color-bronze-hover: var(--bronze-hover);
   --color-pay: var(--pay);
   --color-queue: var(--queue);
   --color-refuse: var(--refuse);
   --color-focus: var(--focus);
+  --color-scrim: var(--scrim);
   --font-display: var(--font-brygada), Georgia, serif;
   --font-sans: var(--font-schibsted), Arial, sans-serif;
   --font-mono: var(--font-commit), ui-monospace, Menlo, monospace;
@@ -50,6 +56,10 @@
 
 /* In the base layer so Tailwind utilities (text-ink-2 on a link) win over the default link colour. */
 @layer base {
+  /* Anchor jumps clear the sticky header: two rows on phone, one from lg. */
+  html { scroll-padding-top: 6.5rem; }
+  @media (min-width: 64rem) { html { scroll-padding-top: 3.5rem; } }
+  html:has(dialog[open]) { overflow: hidden; }
   body {
     background: var(--bg);
     color: var(--ink);
@@ -75,8 +85,23 @@
 /* Sheet open: 220 ms ease-out, no overshoot. */
 @keyframes sheet-in { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
 .sheet-in { animation: sheet-in 220ms ease-out; }
+/* Account menu open: 120 ms fade and a 4 px drop, on open only. */
+@keyframes menu-in { from { transform: translateY(-4px); opacity: 0; } to { transform: none; opacity: 1; } }
+.menu-in { animation: menu-in 120ms ease-out; }
+/* The sign-in dialog's backdrop. The fallback covers browsers where ::backdrop doesn't inherit custom properties. */
+.auth-sheet::backdrop { background: var(--scrim, rgb(20 18 15 / 0.6)); }
+/* Theme switch: a sun in dark (it means "go light"), a moon in light. The pre-paint script always sets data-theme. */
+.theme-moon { display: none; }
+:root[data-theme="light"] .theme-sun { display: none; }
+:root[data-theme="light"] .theme-moon { display: block; }
 @keyframes caret { 50% { opacity: 0; } }
 .caret { display: inline-block; width: 1px; height: 1em; margin-left: 2px; vertical-align: -2px; background: var(--ink); animation: caret 1s steps(1) infinite; }
+
+/* Theme flips cross-fade colours; the pre-paint script adds .theme-anim after first paint, so loading never animates. In
+   the base layer so a component's own transition utility still wins. */
+@layer base {
+  .theme-anim, .theme-anim * { transition: background-color 150ms, color 150ms, border-color 150ms; }
+}
 
 /* Motion is for state change only; with reduced motion every animation is an instant change. */
 @media (prefers-reduced-motion: reduce) {
