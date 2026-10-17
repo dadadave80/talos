@@ -2,15 +2,19 @@
 // Talos changes: only the passkey register/login/derive path is kept (no userOps, Gas Station, transfers or
 // recovery: a free attempt is a signed message, not a transaction), plus signFreeTier for the EIP-191 free tier.
 "use client";
-// Circle Modular Wallets — passkey-owned MSCA (ERC-4337 + ERC-6900) on Arc Testnet. Circle owns the WebAuthn
+// Circle Modular Wallets — passkey-owned MSCA (ERC-4337 + ERC-6900) on Arc (testnet unless NEXT_PUBLIC_CHAIN=arc). Circle owns the WebAuthn
 // ceremony (register/login against a Console-registered passkey domain) and the account derivation.
 // Needs NEXT_PUBLIC_CLIENT_KEY + NEXT_PUBLIC_CLIENT_URL from the Circle Console.
 import { createPublicClient, type Hex } from "viem";
-import { arcTestnet } from "viem/chains";
+import { arc, arcTestnet } from "viem/chains";
 import { toWebAuthnAccount, type WebAuthnAccount } from "viem/account-abstraction";
 import { WebAuthnMode, toCircleSmartAccount, toModularTransport, toPasskeyTransport, toWebAuthnCredential } from "@circle-fin/modular-wallets-core";
 
 const CLIENT_KEY = process.env.NEXT_PUBLIC_CLIENT_KEY;
+// Circle bakes the chain id into every replay-safe signature, so this must match the server's CHAIN.
+const MAINNET = process.env.NEXT_PUBLIC_CHAIN === "arc";
+const CHAIN = MAINNET ? arc : arcTestnet;
+const CIRCLE_PATH = MAINNET ? "arc" : "arcTestnet";
 const CLIENT_URL = process.env.NEXT_PUBLIC_CLIENT_URL;
 
 /** Persistable WebAuthn credential (strip the non-serializable `raw` PublicKeyCredential). */
@@ -28,7 +32,7 @@ function clients() {
   const { clientKey, clientUrl } = requireConfig();
   return {
     passkeyTransport: toPasskeyTransport(clientUrl, clientKey),
-    public: createPublicClient({ chain: arcTestnet, transport: toModularTransport(`${clientUrl}/arcTestnet`, clientKey) }),
+    public: createPublicClient({ chain: CHAIN, transport: toModularTransport(`${clientUrl}/${CIRCLE_PATH}`, clientKey) }),
   };
 }
 
