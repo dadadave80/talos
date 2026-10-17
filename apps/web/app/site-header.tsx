@@ -40,7 +40,8 @@ export function SiteHeader({ active }: { active: (typeof PAGES)[number][0] }) {
   );
 }
 
-export const STACK = `${network} (USDC gas) · Circle Modular Wallets · Facilitator Service · Gateway · built on Lattice`;
+// Only what runs today; the rest is named as in progress, never as live.
+export const STACK = `${network} (USDC gas) · built on Lattice · in progress: Circle Modular Wallets, Facilitator Service, Gateway`;
 
 export function SiteFooter() {
   return (
