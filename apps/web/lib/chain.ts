@@ -5,7 +5,8 @@ export const chain = process.env.CHAIN === "arc" ? arc : arcTestnet;
 
 export const publicClient = createPublicClient({
   chain,
-  transport: http(chain.id === arc.id ? process.env.ARC_MAINNET_RPC : process.env.ARC_TESTNET_RPC),
+  // A stalled node fails a read in ~16 s (two 8 s tries) instead of viem's default four 10 s tries.
+  transport: http(chain.id === arc.id ? process.env.ARC_MAINNET_RPC : process.env.ARC_TESTNET_RPC, { timeout: 8_000, retryCount: 1 }),
 });
 
 export const vault = () => process.env.TALOS_VAULT as Address;

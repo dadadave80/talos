@@ -21,10 +21,12 @@ export async function evidence() {
     sb.from("ops").select("*").order("ts", { ascending: false }).limit(500),
   ]);
   const ev = events ?? [];
-  const at = attempts ?? [];
-  const ext = at.filter((a) => a.wallet_label === "external");
-  const byHash = new Map(at.map((a) => [a.decision_hash, a]));
   const team = new Set((process.env.TEAM_WALLETS ?? "").toLowerCase().split(",").filter(Boolean));
+  // A wallet added to TEAM_WALLETS after it played is relabelled here, so it drops out of every external counter.
+  const at = (attempts ?? []).map((a) => (a.wallet_label === "external" && team.has(String(a.wallet).toLowerCase()) ? { ...a, wallet_label: "team" } : a));
+  const ext = at.filter((a) => a.wallet_label === "external");
+  const tm = at.filter((a) => a.wallet_label === "team");
+  const byHash = new Map(at.map((a) => [a.decision_hash, a]));
   const distinct = (rows: typeof at) => new Set(rows.map((a) => a.wallet)).size;
 
   const commits = ev.filter((e) => e.name === "DecisionCommitted");
@@ -33,6 +35,15 @@ export async function evidence() {
   const outcome = new Map<string, string>();
   for (const e of ev) if (e.name === "Approved" || e.name === "Rejected") outcome.set(String(e.args.id), e.name);
   const tolls = ext.filter((a) => a.toll_kind === "facilitator" && a.toll_status === "completed");
+  const isTeamPay = (e: (typeof paid)[number]) =>
+    team.has(String(e.args.payee).toLowerCase()) || byHash.get(e.args.decisionHash)?.wallet_label === "team";
+  // The VENDOR ops float pays Talos's own agent (lib/cycle.ts): the operator's bills, never an external payout.
+  const agent = (process.env.AGENT_ADDRESS ?? "").toLowerCase();
+  const isOps = (e: (typeof paid)[number]) => Number(e.args.tier) === Tier.VENDOR && !!agent && String(e.args.payee).toLowerCase() === agent;
+  const teamPaid = tm.filter((a) => a.verdict === "PAY" && a.pay_tx && !a.note);
+  // Team Paid events with no attempt row: the phase-2 contract proofs (docs/ADDRESSES.md), not arena attempts.
+  const offArena = paid.filter((e) => isTeamPay(e) && !isOps(e) && !byHash.has(e.args.decisionHash));
+  const cycle = (ops ?? []).find((o) => o.kind === "cycle" && typeof o.detail?.summary === "string");
 
   const [available, params, vaultUsdc] = await Promise.all([
     publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "getAvailable", args: [budgetKey(Tier.DISCRETIONARY)] }),
@@ -54,14 +65,22 @@ export async function evidence() {
       attempts: ext.filter((a) => a.commit_tx).length,
       refusals: ext.filter((a) => a.commit_tx && a.verdict === "REFUSE").length,
       tollsReceived: { count: tolls.length, usdc: (tolls.length * 0.05).toFixed(2) },
+      // Arena attempts from team wallets, never counted above. paidUsdc + offArena.usdc = the team sums in payments.
+      team: {
+        attempts: tm.filter((a) => a.commit_tx).length,
+        wallets: distinct(tm),
+        refused: tm.filter((a) => a.commit_tx && a.verdict === "REFUSE").length,
+        queued: tm.filter((a) => a.commit_tx && a.verdict === "QUEUE").length,
+        paid: teamPaid.length,
+        paidUsdc: usd(teamPaid.reduce((s, a) => s + BigInt(Math.round(Number(a.amount_usdc) * 1e6)), 0n)),
+        offArena: { count: offArena.length, usdc: usd(offArena.reduce((s, e) => s + BigInt(e.args.amount), 0n)), txs: offArena.map((e) => e.tx_hash as string) },
+      },
       // Team wallets are labelled on the attempt row or listed in TEAM_WALLETS; they never count as external.
       payments: TIERS.map((name, tier) => {
         const rows = paid.filter((e) => Number(e.args.tier) === tier);
         const sum = (r: typeof rows) => usd(r.reduce((s, e) => s + BigInt(e.args.amount), 0n));
-        const isTeam = (e: (typeof rows)[number]) =>
-          team.has(String(e.args.payee).toLowerCase()) || byHash.get(e.args.decisionHash)?.wallet_label === "team";
-        const external = rows.filter((e) => !isTeam(e));
-        const teamRows = rows.filter(isTeam);
+        const external = rows.filter((e) => !isTeamPay(e) && !isOps(e));
+        const teamRows = rows.filter((e) => isTeamPay(e) && !isOps(e));
         return { tier: name, external: { count: external.length, usdc: sum(external) }, team: { count: teamRows.length, usdc: sum(teamRows) } };
       }),
       escalations: {
@@ -87,5 +106,7 @@ export async function evidence() {
     paidOutAll: usd(paid.reduce((s, e) => s + BigInt(e.args.amount), 0n)),
     attempts: at.slice(0, 200).map((a) => ({ ...a, commit_url: a.commit_tx ? txUrl(a.commit_tx) : null })),
     ops: ops ?? [],
+    // The operator heartbeat: the newest "cycle" ops row. Null until the first cycle logs one.
+    lastCycle: cycle ? { ts: cycle.ts as string, summary: cycle.detail.summary as string } : null,
   };
 }

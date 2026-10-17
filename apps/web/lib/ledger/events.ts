@@ -12,16 +12,22 @@ export async function syncEvents() {
   const v = vault().toLowerCase();
   const { data: cur } = await sb.from("sync_cursor").select("next_block").eq("vault", v).maybeSingle();
   const from = BigInt(cur?.next_block ?? process.env.DEPLOY_BLOCK ?? 0);
-  const head = await publicClient.getBlockNumber();
+  const head = await publicClient.getBlockNumber().catch(() => null);
+  if (head == null) return from - 1n;
   if (from > head) return head;
 
   const ranges: [bigint, bigint][] = [];
   for (let a = from; a <= head && ranges.length < MAX_CHUNKS; a += SPAN + 1n) {
     ranges.push([a, a + SPAN > head ? head : a + SPAN]);
   }
-  const logs = (
-    await Promise.all(ranges.map(([fromBlock, toBlock]) => publicClient.getLogs({ address: vault(), fromBlock, toBlock })))
-  ).flat();
+  // A rate-limited RPC must not take the pages down: serve what is already mirrored and catch up on the next read.
+  let logs;
+  try {
+    logs = (await Promise.all(ranges.map(([fromBlock, toBlock]) => publicClient.getLogs({ address: vault(), fromBlock, toBlock })))).flat();
+  } catch (e) {
+    console.error("[events] getLogs failed; serving the mirror", e instanceof Error ? e.message.split("\n")[0] : e);
+    return from - 1n;
+  }
   const rows = parseEventLogs({ abi: vaultAbi, logs, strict: false }).map((l) => ({
     tx_hash: l.transactionHash,
     log_index: l.logIndex,

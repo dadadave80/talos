@@ -49,6 +49,10 @@ const Words = ({ parts, style }: { parts: [string, string?][]; style: React.CSSP
 
 const image = async (el: React.ReactElement, size: { width: number; height: number }) => new ImageResponse(el, { ...size, fonts: await fonts() });
 const short = (h: string) => `${h.slice(0, 6)}…${h.slice(-4)}`;
+/// The stored excerpt is the message's first 80 characters: end on a sentence in the last 30 when one is there, else
+/// drop the cut word.
+export const excerpt = (s: string) =>
+  s.length < 80 ? s : (s.match(/^([\s\S]{50,}[.!?]["'”’)\]]*)\s/)?.[1] ?? `${s.replace(/\s+\S*$/, "")}…`);
 const firstSentence = (s: string) => {
   const t = s.replace(/\s*\[contract:[^\]]*\]/, "").split(/(?<=[.!?])\s/)[0];
   return t.length > 160 ? `${t.slice(0, 159).replace(/\s+\S*$/, "")}…` : t;
@@ -167,7 +171,7 @@ export async function receiptImage(r: Receipt, size: { width: number; height: nu
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
             {r.message_excerpt && (
-              <span style={{ fontFamily: D, fontWeight: 500, fontSize: 40, lineHeight: "48px" }}>{`“${r.message_excerpt}${r.message_excerpt.length >= 80 ? "…" : ""}”`}</span>
+              <span style={{ fontFamily: D, fontWeight: 500, fontSize: 40, lineHeight: "48px" }}>{`“${excerpt(r.message_excerpt)}”`}</span>
             )}
             <span style={{ fontSize: 26, lineHeight: "36px", color: C.ink2 }}>{firstSentence(r.reason)}</span>
           </div>

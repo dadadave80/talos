@@ -1,10 +1,17 @@
 import { chain, explorer, publicClient, vault, vaultAbi } from "./chain";
 import { evidence } from "./ledger/evidence";
 
-/// Everything the Arena shows above the composer: external-only counters, the discretionary meter, the pause flag
-/// and the latest decided attempts (team rows included but labelled). Served by the page and by /api/snapshot.
+/// Everything the Arena shows above the composer: external-only counters, team tests (counted apart), the discretionary
+/// meter, the pause flag, the operator's last cycle and the latest decided attempts (team rows included but labelled).
+/// Served by the page and by /api/snapshot.
 export async function snapshot() {
-  const [e, stopped] = await Promise.all([evidence(), publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "isStopped" })]);
+  // A stalled RPC or database fails the request after 20 s instead of hanging it: the page keeps its last render and
+  // the arena its "Read" time. The reads run on (the event sync is idempotent); only the wait is cut.
+  const deadline = AbortSignal.timeout(20_000);
+  const [e, stopped] = await Promise.race([
+    Promise.all([evidence(), publicClient.readContract({ address: vault(), abi: vaultAbi, functionName: "isStopped" })]),
+    new Promise<never>((_, no) => deadline.addEventListener("abort", () => no(deadline.reason), { once: true })),
+  ]);
   const c = e.counters;
   const ext = (tier: string) => c.payments.find((p) => p.tier === tier)?.external.usdc ?? "0";
   return {
@@ -22,6 +29,10 @@ export async function snapshot() {
     contributorsPaid: ext("CONTRIBUTOR"),
     escalations: c.escalations.total,
     stopped,
+    team: c.team,
+    // The newest decided attempt of any non-synthetic wallet, team tests included: it is a timestamp, not a count.
+    lastVerdictAt: (e.attempts.find((a) => a.verdict && a.wallet_label !== "synthetic")?.ts as string | undefined) ?? null,
+    lastCycle: e.lastCycle,
     // "The one that worked": the largest payout to an external wallet. Null until one exists.
     best: (() => {
       const b = e.attempts.filter((a) => a.wallet_label === "external" && a.verdict === "PAY" && a.pay_tx && !a.note).sort((x, y) => Number(y.amount_usdc) - Number(x.amount_usdc))[0];
