@@ -7,7 +7,11 @@ const VELOCITY_KEY = keccak256(toBytes("talos.velocity"));
 /// Everything the Arena shows above the composer: external-only counters, team tests (counted apart), the discretionary
 /// meter, the pause and velocity-breaker flags, the operator's last cycle and the latest decided attempts (team rows
 /// included but labelled). Served by the page and by /api/snapshot.
-export async function snapshot() {
+export function snapshot() {
+  return read().catch(() => new Promise((r) => setTimeout(r, 3000)).then(read));
+}
+
+async function read() {
   // A stalled RPC or database fails the request after 20 s instead of hanging it: the page keeps its last render and
   // the arena its "Read" time. The reads run on (the event sync is idempotent); only the wait is cut.
   const deadline = AbortSignal.timeout(20_000);
@@ -50,4 +54,4 @@ export async function snapshot() {
       .map((a) => ({ id: a.id as string, verdict: a.verdict as "PAY" | "QUEUE" | "REFUSE", wallet: a.wallet as string, team: a.wallet_label !== "external", excerpt: (a.message_excerpt as string | null) ?? null, amount: (a.amount_usdc as number | null) ?? null, ts: a.ts as string })),
   };
 }
-export type Snapshot = Awaited<ReturnType<typeof snapshot>>;
+export type Snapshot = Awaited<ReturnType<typeof read>>;

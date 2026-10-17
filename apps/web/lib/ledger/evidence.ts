@@ -18,7 +18,18 @@ export const relabel = <T extends { wallet: unknown; wallet_label: unknown }>(a:
 /// Everything on /evidence. Payments, escalations and commits come from diamond events; the attempts table adds
 /// what the chain cannot know (wallet label, account kind, toll settlement). Team and synthetic wallets are
 /// excluded from every external counter.
-export async function evidence() {
+/// One read shared for a few seconds (a build prerenders several pages off it at once, and the public RPC rate-limits),
+/// retried once after a pause; a failure is never cached.
+let shared: { at: number; p: ReturnType<typeof read> } | null = null;
+export function evidence() {
+  if (shared && Date.now() - shared.at < 10_000) return shared.p;
+  const p = read().catch(() => new Promise((r) => setTimeout(r, 3000)).then(read));
+  shared = { at: Date.now(), p };
+  p.catch(() => (shared = null));
+  return p;
+}
+
+async function read() {
   const head = await syncEvents();
   const sb = db();
   // Hourly heartbeats are read apart, so they never push the operator's actions out of the 500-row window.
