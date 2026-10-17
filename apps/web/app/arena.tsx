@@ -6,9 +6,11 @@ import { FREE_PER_WALLET, freeTierMessage } from "@/lib/accounts/freeTier";
 import type { Receipt } from "@/lib/share";
 import type { Snapshot } from "@/lib/snapshot";
 import { VerdictReceipt } from "./verdict-receipt";
+import { accountFromCredential, circleConfigured, loginCredential, registerCredential, signFreeTier } from "@/lib/circleWallet";
+import { addSession, currentSession, lastSession, signOutSession, type PasskeySession } from "./passkey-store";
 
-// Design: Talos Arena. Signed out: the pitch, the meter, what others tried. Signed in (any injected EOA wallet;
-// passkeys arrive in phase 4a): the wallet's ledger and the composer. A free attempt is an EIP-191 signature over
+// Design: Talos Arena. Signed out: the pitch, the meter, what others tried. Signed in (a Circle Modular Wallets
+// passkey, as in engye, or any injected EOA wallet): the account's ledger and the composer. A free attempt is an EIP-191 signature over
 // freeTierMessage, the same builder the server verifies against, so the two cannot drift.
 
 type Eth = { request: (a: { method: string; params?: unknown[] }) => Promise<unknown>; on?: (e: string, f: (a: string[]) => void) => void };
@@ -31,7 +33,8 @@ const CHIPS: [string, string][] = [
 ];
 
 export function Arena({ initial, network }: { initial: Snapshot; network: string }) {
-  const [sheet, setSheet] = useState<null | "open" | "connecting" | "error">(null);
+  const [sheet, setSheet] = useState<null | "open" | "passkey" | "connecting" | "error">(null);
+  const [passkey, setPasskey] = useState<PasskeySession | null>(null);
   const [sheetError, setSheetError] = useState("");
   const [tour, setTour] = useState<number | null>(null);
   const [tickerHold, setTickerHold] = useState(false);
@@ -98,8 +101,14 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
     if (new URLSearchParams(location.search).get("judge") === "1") setTour(0);
   }, []);
 
-  // Restore a wallet that is already connected, without a prompt.
+  // Restore a signed-in passkey, else a wallet that is already connected, without a prompt.
   useEffect(() => {
+    const session = currentSession();
+    if (session) {
+      setPasskey(session);
+      setAddr(session.address);
+      return;
+    }
     const w = eth();
     if (!w) return;
     w.request({ method: "eth_accounts" }).then((a) => {
@@ -108,6 +117,34 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
     });
     w.on?.("accountsChanged", (a) => setAddr(a[0] ? getAddress(a[0]) : null));
   }, []);
+
+  // Passkey (engye's flow): reuse the last passkey on this device, else create one; "Sign in" picks an existing one.
+  async function usePasskeyFlow(mode: "continue" | "login") {
+    setSheet("passkey");
+    try {
+      const known = mode === "continue" ? lastSession() : null;
+      const label = known?.label ?? `TALOS-${Math.random().toString(36).slice(2, 8)}`;
+      const credential = known?.credential ?? (mode === "login" ? await loginCredential() : await registerCredential(label));
+      const account = await accountFromCredential(credential);
+      const session = { address: account.address, credential, label };
+      addSession(session);
+      setPasskey(session);
+      setAddr(account.address);
+      setSheet(null);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setSheetError(/NotAllowed|cancel|abort|timed out/i.test(msg) ? "The passkey prompt was cancelled" : /credentials|configured/i.test(msg) ? "Passkeys aren't enabled for this site yet; use a wallet for now" : "The passkey didn't complete");
+      setSheet("error");
+    }
+  }
+
+  function signOut() {
+    signOutSession();
+    setPasskey(null);
+    setAddr(null);
+    setEntries([]);
+    setLeft(null);
+  }
   useEffect(() => {
     if (addr) load(addr);
   }, [addr, load]);
@@ -131,16 +168,21 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
   }
 
   async function send() {
-    const w = eth();
     const text = draft.trim();
-    if (!w || !addr || !text || pending || cooldown > 0) return;
+    if (!addr || !text || pending || cooldown > 0) return;
     setError(null);
     const nonce = crypto.randomUUID();
+    const message = freeTierMessage(addr, nonce, snap.chainId, snap.vault as Address);
     let signature: string;
     try {
-      signature = (await w.request({ method: "personal_sign", params: [toHex(freeTierMessage(addr, nonce, snap.chainId, snap.vault as Address)), addr] })) as string;
+      if (passkey) signature = await signFreeTier(passkey.credential, message);
+      else {
+        const w = eth();
+        if (!w) return setError("Your wallet is no longer available; sign in again.");
+        signature = (await w.request({ method: "personal_sign", params: [toHex(message), addr] })) as string;
+      }
     } catch {
-      return setError("Signature declined; nothing was sent.");
+      return setError(`${passkey ? "Passkey" : "Signature"} declined; nothing was sent.`);
     }
     setPending(text);
     setCooldown(20);
@@ -148,7 +190,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
       const r = await fetch("/api/attempt", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ wallet: addr, accountKind: "eoa", message: text, free: { nonce, signature } }),
+        body: JSON.stringify({ wallet: addr, accountKind: passkey ? "embedded" : "eoa", message: text, free: { nonce, signature } }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -253,7 +295,10 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
           {signedIn ? (
             <>
               <span className="font-mono text-[13px]">
-                Signed in as {short(addr)} · {left ?? "…"} free attempts left today
+                Signed in with {passkey ? "passkey" : "wallet"} {short(addr)} · {left ?? "…"} free attempts left today
+                {passkey && (
+                  <button onClick={signOut} className="ml-3 cursor-pointer font-sans text-[13px] font-medium text-ink-2 underline decoration-rule underline-offset-4">Sign out</button>
+                )}
               </span>
               {entries[0] && (
                 <a href={`/v/${entries[0].id}`} className="font-mono text-[13px] text-ink">
@@ -274,7 +319,7 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
                 )}
               </div>
               <span className="text-[13px] text-ink-3">
-                {noWallet ? "No browser wallet found. Install one (MetaMask, Rabby, Coinbase Wallet) to sign a free attempt; passkeys are coming." : "5 free attempts with any browser wallet; you only sign a message. Paid attempts (0.05 USDC into the vault) open soon."}
+                {noWallet ? "No browser wallet found. Use a passkey instead, or install a wallet (MetaMask, Rabby, Coinbase Wallet)." : "5 free attempts a day with a passkey or any browser wallet; you only sign a message. Paid attempts (0.05 USDC into the vault) open soon."}
               </span>
             </>
           )}
@@ -437,21 +482,40 @@ export function Arena({ initial, network }: { initial: Snapshot; network: string
         </aside>
       </section>
 
-      {sheet && <AuthSheet state={sheet} error={sheetError} onConnect={connect} onClose={() => setSheet(null)} />}
+      {sheet && (
+        <AuthSheet
+          state={sheet}
+          error={sheetError}
+          passkeys={circleConfigured()}
+          onPasskey={() => usePasskeyFlow("continue")}
+          onPasskeyLogin={() => usePasskeyFlow("login")}
+          onWallet={connect}
+          onClose={() => setSheet(null)}
+        />
+      )}
       {tour !== null && <Tour step={tour} onStep={setTour} />}
     </>
   );
 }
 
-/// Design: Sheets and States, auth sheet. One primary action. Passkeys (Circle Modular Wallets) are not built yet,
-/// so the sheet offers a browser wallet only and says so; it never shows a passkey button that does nothing.
-function AuthSheet({ state, error, onConnect, onClose }: { state: "open" | "connecting" | "error"; error: string; onConnect: () => void; onClose: () => void }) {
+/// Design: Sheets and States, auth sheet. One primary action: a Circle Modular Wallets passkey (engye's flow), with
+/// "Use a wallet" as the secondary path. Both only ever sign messages for free attempts.
+function AuthSheet(p: {
+  state: "open" | "passkey" | "connecting" | "error"; error: string; passkeys: boolean;
+  onPasskey: () => void; onPasskeyLogin: () => void; onWallet: () => void; onClose: () => void;
+}) {
+  const { state, onClose } = p;
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     addEventListener("keydown", esc);
     return () => removeEventListener("keydown", esc);
   }, [onClose]);
-  const connecting = state === "connecting";
+  const busy = state === "passkey" || state === "connecting";
+  const walletFirst = !p.passkeys || state === "connecting";
+  const primary = walletFirst
+    ? { label: state === "connecting" ? "Connecting…" : "Connect a wallet", go: p.onWallet }
+    : { label: state === "passkey" ? "Confirm with your device…" : "Continue with passkey", go: p.onPasskey };
+  const host = typeof location === "undefined" ? "this site" : location.hostname;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 lg:items-center" onClick={onClose}>
       <div
@@ -462,23 +526,41 @@ function AuthSheet({ state, error, onConnect, onClose }: { state: "open" | "conn
         className="sheet-in flex w-full max-w-[440px] flex-col gap-3.5 rounded-t-md border-t border-ink bg-raised px-6 pb-8 pt-3 lg:rounded-md"
       >
         <div className="mb-2 mt-1 h-px w-12 self-center bg-ink-3" aria-hidden="true" />
-        <h2 id="auth-title" className="font-display text-[28px] font-medium leading-8">{connecting ? "Connect existing wallet" : "Try it free"}</h2>
+        <h2 id="auth-title" className="font-display text-[28px] font-medium leading-8">{state === "connecting" ? "Connect existing wallet" : "Try it free"}</h2>
         <p className="text-[15px] leading-[22px] text-ink-2">
-          {connecting ? "Approve the connection in your wallet. You will only ever sign messages; nothing leaves your wallet." : "5 free attempts per day with any browser wallet. Each one is a signed message: no gas, no funds."}
+          {state === "connecting"
+            ? "Approve the connection in your wallet. You will only ever sign messages; nothing leaves your wallet."
+            : "5 free attempts a day. Each one is a signed message: no gas, no funds, no seed phrase with a passkey."}
         </p>
         <button
-          onClick={onConnect}
-          disabled={connecting}
+          onClick={primary.go}
+          disabled={busy}
           autoFocus
-          className={`h-13 cursor-pointer text-base font-semibold disabled:cursor-wait ${connecting ? "bg-rule text-ink" : "bg-ink text-bg"}`}
+          className={`h-13 cursor-pointer text-base font-semibold disabled:cursor-wait ${busy ? "bg-rule text-ink" : "bg-ink text-bg"}`}
         >
-          {connecting ? "Connecting…" : "Connect a wallet"}
+          {primary.label}
         </button>
-        <button onClick={onClose} className="h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px]">
-          Not now
-        </button>
+        {!walletFirst && (
+          <button onClick={p.onWallet} disabled={busy} className="h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px]">
+            Use a wallet
+          </button>
+        )}
+        {state === "connecting" && p.passkeys && (
+          <button onClick={p.onPasskey} className="h-11 cursor-pointer text-[15px] font-medium text-ink underline decoration-rule underline-offset-[6px]">
+            Use a passkey instead
+          </button>
+        )}
         <span className={`min-h-5 text-center text-[13px] ${state === "error" ? "text-refuse" : "text-ink-3"}`} role={state === "error" ? "alert" : undefined}>
-          {state === "error" ? `${error}. Try again.` : "Passkey sign-in is coming."}
+          {state === "error" ? (
+            `${p.error}. Try again.`
+          ) : p.passkeys && !walletFirst ? (
+            <>
+              Passkey is bound to {host} ·{" "}
+              <button onClick={p.onPasskeyLogin} disabled={busy} className="cursor-pointer underline underline-offset-4">Already have one? Sign in</button>
+            </>
+          ) : (
+            ""
+          )}
         </span>
       </div>
     </div>
