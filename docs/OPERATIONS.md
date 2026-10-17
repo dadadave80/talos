@@ -60,6 +60,14 @@ values are baked in at build time, so after changing one in Vercel, push (or red
 `.github/workflows/cycle.yml` runs hourly and on demand (Actions → operator-cycle → Run workflow). Repo secret
 `CRON_SECRET`, repo variable `TALOS_URL`. A failed run is not retried; the next hour picks up where it left off.
 
+## Operator bills (Gateway + x402)
+`X402_VENDOR_URL=https://x402.quicknode.com/arc-testnet/` (Vercel production): Quicknode sells one Arc RPC read for
+0.0001 USDC with a `GatewayWalletBatched` option on Arc testnet. Each cycle the agent buys one read; once a day the
+vault pays a 1 USDC VENDOR float to the agent, which deposits it into Circle Gateway. Every leg lands on `/evidence`.
+- `bun scripts/x402-probe.ts [url]` (from `apps/web`): the seller's unpaid 402 quote and whether the agent would buy. Signs nothing.
+- `bun scripts/vendor-once.ts`: balances, VENDOR budget and the quote. `--yes` runs the vendor leg for real.
+- Trigger a cycle now: `gh workflow run operator-cycle --repo dadadave80/talos`.
+
 ## Bounties
 Label a Lattice issue `bounty:N` (labels `bounty:2`, `bounty:3`, `bounty:4` exist). A merged PR that closes it
 ("Closes #335") inherits the bounty; no PR label needed. A `bounty:N` label on the PR itself overrides. One payment per

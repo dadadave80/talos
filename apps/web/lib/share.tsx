@@ -60,9 +60,10 @@ const firstSentence = (s: string) => {
 
 /// S1: the site's OG image with live external counters. Taken = DISCRETIONARY paid to external wallets.
 export async function ogImage(size: { width: number; height: number }) {
-  const e = await evidence();
-  const taken = e.counters.payments.find((p) => p.tier === "DISCRETIONARY")?.external.usdc ?? "0";
-  const counters = [["Attempts", e.counters.attempts], ["Refused", e.counters.refusals], ["Taken", `${taken} USDC`]];
+  // A rate-limited RPC (the build prerenders this) leaves the counters off rather than failing the image.
+  const e = await evidence().catch(() => null);
+  const taken = e?.counters.payments.find((p) => p.tier === "DISCRETIONARY")?.external.usdc ?? "0";
+  const counters = e ? [["Attempts", e.counters.attempts], ["Refused", e.counters.refusals], ["Taken", `${taken} USDC`]] : [];
   return image(
     <Frame w={1200} h={630}>
       <div style={{ display: "flex", alignItems: "center", gap: 14, fontFamily: D, fontWeight: 600, fontSize: 30, letterSpacing: 2.4 }}>
