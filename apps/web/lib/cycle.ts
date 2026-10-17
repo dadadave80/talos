@@ -1,6 +1,7 @@
 import { getAddress, type Address } from "viem";
 import { Tier } from "./chain";
 import { db } from "./db";
+import { gatewayDeposit, x402Buy } from "./ops/vendor";
 import { checkPrMerged, getBalances, pay, precheckPay, queueForHuman, usdc, type Intent } from "./tools";
 
 const REPO = "dadadave80/lattice";
@@ -36,6 +37,38 @@ async function nextBountyPr() {
   return candidates.find((p) => !seen.has(p.html_url)) ?? null;
 }
 
+const FLOAT = usdc(1); // vault -> ops float per top-up, well inside VENDOR 5/tx, 10/day
+
+/// VENDOR flow: vault pays the ops float (the agent's own Circle EOA, VENDOR-allowlisted at init) at most once a
+/// day, the agent deposits it into Gateway, then buys one metered search per cycle over x402. Every leg is on the
+/// ops log with its tx or settlement id.
+async function runVendor() {
+  const url = process.env.X402_VENDOR_URL;
+  if (!url) return { vendor: "X402_VENDOR_URL unset" };
+  const sb = db();
+  const since = new Date(Date.now() - 86_400_000).toISOString();
+  const { data: floats } = await sb.from("ops").select("id").eq("kind", "vendor-float").gte("ts", since).limit(1);
+  if (!floats?.length) {
+    const agent = process.env.CIRCLE_AGENT_WALLET_ADDRESS as Address;
+    const intent: Intent = { attemptId: `float-${since.slice(0, 13)}`, tier: Tier.VENDOR, payee: agent, amount: FLOAT, reason: "Daily ops float for metered x402 services (Gateway deposit)", model: MODEL };
+    const why = await precheckPay(intent);
+    if (why) return { vendor: `float blocked: ${why}` };
+    const r = await pay(intent);
+    await sb.from("ops").insert({ kind: "vendor-float", ref: intent.attemptId, decision_hash: r.decisionHash, tx: r.payTx, detail: { commitTx: r.commitTx, failed: r.failed } });
+    if (r.failed) return { vendor: `float reverted: ${r.failed}` };
+    const d = await gatewayDeposit(FLOAT);
+    await sb.from("ops").insert({ kind: "vendor-deposit", tx: d.depositTx, detail: d });
+  }
+  const query = "EIP-2535 diamond facet vulnerability disclosure";
+  const r = await x402Buy(url, { body: { query, numResults: 3 } });
+  await sb.from("ops").insert({
+    kind: "vendor",
+    ref: r.settlement,
+    detail: { url, query, usdc: Number(r.amount) / 1e6, results: Array.isArray(r.data?.results) ? r.data.results.length : null },
+  });
+  return { vendor: { settlement: r.settlement, usdc: Number(r.amount) / 1e6 } };
+}
+
 /// One idempotent step per invocation (GitHub cron and Vercel never retry): gas check, then at most one PR.
 export async function runCycle() {
   const sb = db();
@@ -46,17 +79,18 @@ export async function runCycle() {
     return { stopped: "gas below floor; owner tops up" };
   }
 
+  const vendor = await runVendor().catch((e) => ({ vendor: `error: ${String(e).slice(0, 200)}` }));
   const pr = await nextBountyPr();
-  if (!pr) return { contributor: "no unpaid bounty PRs" };
+  if (!pr) return { ...vendor, contributor: "no unpaid bounty PRs" };
   const info = await checkPrMerged(REPO, pr.number);
   const payee = wallets().get(info.author.toLowerCase());
 
   // Claim the PR first: the unique index on (ref) where kind='contributor' makes a second run a no-op.
   const { error: claimed } = await sb.from("ops").insert({ kind: "contributor", ref: info.url, detail: { author: info.author, bounty: info.bountyUsdc, state: "claimed" } });
-  if (claimed) return { contributor: `already handled ${info.url}` };
+  if (claimed) return { ...vendor, contributor: `already handled ${info.url}` };
   if (!info.merged || !info.bountyUsdc || !payee) {
     await sb.from("ops").update({ detail: { author: info.author, state: payee ? "not-merged" : "no-wallet-on-file" } }).eq("kind", "contributor").eq("ref", info.url);
-    return { contributor: `skipped ${info.url}` };
+    return { ...vendor, contributor: `skipped ${info.url}` };
   }
 
   const intent: Intent = {
@@ -78,5 +112,5 @@ export async function runCycle() {
     })
     .eq("kind", "contributor")
     .eq("ref", info.url);
-  return { contributor: info.url, outcome: !r ? why : "payTx" in r ? (r.failed ?? "paid") : "queued" };
+  return { ...vendor, contributor: info.url, outcome: !r ? why : "payTx" in r ? (r.failed ?? "paid") : "queued" };
 }
