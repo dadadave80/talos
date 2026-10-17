@@ -43,17 +43,41 @@ const QUERY = `query($owner: String!, $name: String!) {
   }
 }`;
 
-/// The 50 most recently updated merged PRs that carry a bounty, own or inherited. Read-only token; untrusted data.
-export async function bountyPrs(repo: string): Promise<Bounty[]> {
+async function gql(query: string, repo: string) {
   const [owner, name] = repo.split("/");
   const res = await fetch("https://api.github.com/graphql", {
     method: "POST",
     headers: { authorization: `Bearer ${process.env.GITHUB_TOKEN}`, "content-type": "application/json" },
-    body: JSON.stringify({ query: QUERY, variables: { owner, name } }),
+    body: JSON.stringify({ query, variables: { owner, name } }),
     cache: "no-store",
+    signal: AbortSignal.timeout(15_000),
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || body?.errors) throw new Error(`github ${res.status} ${JSON.stringify(body?.errors ?? "").slice(0, 200)}`);
-  const prs: MergedPr[] = body.data.repository.pullRequests.nodes;
+  return body.data.repository;
+}
+
+/// The 50 most recently updated merged PRs that carry a bounty, own or inherited. Read-only token; untrusted data.
+export async function bountyPrs(repo: string): Promise<Bounty[]> {
+  const prs: MergedPr[] = (await gql(QUERY, repo)).pullRequests.nodes;
   return prs.map((pr) => bountyOf(pr, repo)).filter((b): b is Bounty => b !== null);
+}
+
+const OPEN = `query($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, first: 100) { nodes { labels(first: 20) { nodes { name } } } }
+  }
+}`;
+
+/// Open issues carrying a bounty label and what they add up to (first bounty label per issue, summed in 6-dp units).
+export function openTotals(issues: Label[][]) {
+  const amounts = issues.map(amount).filter((a): a is string => !!a);
+  const micro = amounts.reduce((sum, a) => sum + Math.round(Number(a) * 1e6), 0);
+  return { count: amounts.length, usdc: micro / 1e6 };
+}
+
+/// Open bounty issues in the repo (the `issues` connection excludes PRs), for the cycle heartbeat.
+export async function openBounties(repo: string) {
+  const issues: { labels: { nodes: Label[] } }[] = (await gql(OPEN, repo)).issues.nodes;
+  return openTotals(issues.map((i) => i.labels.nodes));
 }

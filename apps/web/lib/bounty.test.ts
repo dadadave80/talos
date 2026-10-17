@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { bountyOf, type MergedPr } from "./bounty";
+import { bountyOf, openTotals, type MergedPr } from "./bounty";
 
 const pr = (prLabels: string[], issues: [string, string[], string?][] = []): MergedPr => ({
   number: 7,
@@ -16,4 +16,10 @@ test("bounty: PR label wins, issue label inherited, claim keyed on the source", 
   expect(bountyOf(pr(["bounty:x", "bounty:"], [["i/1", ["bounty:-1", "xbounty:3"]]]), "o/r")).toBeNull();
   expect(bountyOf(pr([], [["x/1", ["bounty:9"], "attacker/repo"]]), "o/r")).toBeNull();
   expect(bountyOf({ ...pr(["bounty:1"]), author: null }, "o/r")).toBeNull();
+});
+
+test("open bounties: one bounty per issue, malformed labels ignored, 6-dp sum", () => {
+  const l = (...names: string[]) => names.map((name) => ({ name }));
+  expect(openTotals([l("bounty:2", "bounty:9"), l("docs"), l("bounty:0.1"), l("bounty:0.2"), l("bounty:x", "xbounty:3"), []])).toEqual({ count: 3, usdc: 2.3 });
+  expect(openTotals([])).toEqual({ count: 0, usdc: 0 });
 });
