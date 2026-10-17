@@ -21,7 +21,7 @@ import {TalosParams} from "./Params.s.sol";
 
 /// @notice Composes, cuts and initializes TalosVault in one transaction through LatticeFactory.
 ///         `forge script script/Deploy.s.sol --rpc-url arc-testnet --broadcast --account <keystore>`
-///         Env: OWNER_ADDRESS, AGENT_ADDRESS, optional VENDOR_ALLOWLIST / CONTRIBUTOR_ALLOWLIST (comma-separated).
+///         Env: OWNER_ADDRESS, AGENT_ADDRESS, HOT_COMMIT_ADDRESS, optional VENDOR_ALLOWLIST / CONTRIBUTOR_ALLOWLIST (comma-separated).
 contract Deploy is BaseDeploy {
     function buildCuts(TalosInit.Config memory cfg)
         public
@@ -48,7 +48,11 @@ contract Deploy is BaseDeploy {
             _withUpgradeableIntrospection(address(new TalosInit()), abi.encodeCall(TalosInit.init, (cfg)));
     }
 
-    function config(address asset, address owner, address agent) public view returns (TalosInit.Config memory cfg) {
+    function config(address asset, address owner, address agent, address hotKey)
+        public
+        view
+        returns (TalosInit.Config memory cfg)
+    {
         address[] memory vendors = vm.envOr("VENDOR_ALLOWLIST", ",", new address[](0));
         address[] memory contributors = vm.envOr("CONTRIBUTOR_ALLOWLIST", ",", new address[](0));
         cfg.allowTiers = new Tier[](vendors.length + contributors.length);
@@ -58,11 +62,12 @@ contract Deploy is BaseDeploy {
         }
         for (uint256 i; i < contributors.length; ++i) {
             (cfg.allowTiers[vendors.length + i], cfg.allowPayees[vendors.length + i]) =
-                (Tier.CONTRIBUTOR, contributors[i]);
+            (Tier.CONTRIBUTOR, contributors[i]);
         }
         cfg.asset = asset;
         cfg.owner = owner;
         cfg.agent = agent;
+        cfg.hotKey = hotKey;
         cfg.agentExpiry = TalosParams.AGENT_EXPIRY;
         cfg.timelockDelay = TalosParams.TIMELOCK_DELAY;
         cfg.params = TalosParams.launch();
@@ -71,8 +76,9 @@ contract Deploy is BaseDeploy {
     function run() external returns (address vault) {
         address owner = vm.envAddress("OWNER_ADDRESS");
         address agent = vm.envAddress("AGENT_ADDRESS");
-        require(owner != agent, "owner key must not be the agent key");
-        TalosInit.Config memory cfg = config(TalosParams.ARC_USDC, owner, agent);
+        address hotKey = vm.envAddress("HOT_COMMIT_ADDRESS");
+        require(owner != agent && owner != hotKey && agent != hotKey, "owner, agent and hot key must differ");
+        TalosInit.Config memory cfg = config(TalosParams.ARC_USDC, owner, agent, hotKey);
         vm.startBroadcast();
         (FacetCut[] memory cuts, address init, bytes memory initCalldata) = buildCuts(cfg);
         vault = _assemble(cuts, init, initCalldata);

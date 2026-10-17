@@ -13,15 +13,15 @@ library TalosParams {
     address internal constant ARC_USDC = 0x3600000000000000000000000000000000000000;
 
     uint256 internal constant TIMELOCK_DELAY = 172_800; // 48h, seconds
-    uint48 internal constant AGENT_EXPIRY = 1_792_540_799; // 2026-10-20 23:59:59 UTC
+    uint48 internal constant AGENT_EXPIRY = 1_796_083_199; // 2026-11-30 23:59:59 UTC; judging runs past the deadline
 
     function launch() internal pure returns (Params memory p) {
         p.perTxCap = [10 * USDC, 5 * USDC, USDC / 4]; // CONTRIBUTOR, VENDOR, DISCRETIONARY
         p.dailyCap = [25 * USDC, 10 * USDC, 3 * USDC];
         p.ownerPerTxCap = 20 * USDC; // owner-signed bounties 5-20
         p.ownerDailyCap = 40 * USDC;
-        p.velocityMax = 20; // the 21st payout inside the window reverts until the owner resumes
+        p.velocityMax = 10; // the 11th payout inside the window reverts until the owner resumes
         p.velocityWindow = 3600;
-        p.commitTtl = 300; // blocks; ~2.5 min at Arc's measured ~0.51 s blocks
+        p.commitTtl = 600; // blocks; ~5 min at Arc's ~0.51 s blocks: commit -> pay is two sequential MPC txs
     }
 }

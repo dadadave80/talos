@@ -17,6 +17,7 @@ contract TreasuryPolicyFacet {
     event Rejected(uint256 indexed id, address signer);
     event AllowlistSet(Tier indexed tier, address indexed payee, bool allowed);
     event ParamsSet(Params p);
+    event Resumed(address indexed by, bool clearedStop, bool clearedVelocity);
 
     function pay(bytes32 decisionHash, Tier tier, address payee, uint256 amount) external {
         TalosLib.checkAgent();
@@ -39,9 +40,7 @@ contract TreasuryPolicyFacet {
 
     /// @notice Escalates a payment to the human owner. Works while the breaker is tripped or the vault is
     ///         stopped: escalating moves no money.
-    function queue(bytes32 decisionHash, Tier tier, address payee, uint256 amount, string calldata reason)
-        external
-    {
+    function queue(bytes32 decisionHash, Tier tier, address payee, uint256 amount, string calldata reason) external {
         TalosLib.checkAgent();
         TalosLib.spendCommit(decisionHash, Verdict.QUEUE);
         if (payee == address(0)) revert TalosLib.ZeroPayee();
@@ -73,13 +72,16 @@ contract TreasuryPolicyFacet {
         emit Rejected(id, msg.sender);
     }
 
-    /// @notice Owner's instant recovery: clears an EmergencyStop and a tripped velocity breaker. Deliberate
-    ///         deviation from Lattice, where resume is DEFAULT_ADMIN (here: a 48h timelock round). The owner can
-    ///         resume instantly; nobody can raise a cap instantly.
+    /// @notice Owner's instant recovery: clears only the EmergencyStop flag and the velocity counter; RateLimiter
+    ///         budgets are untouched. Deliberate deviation from Lattice, where resume is DEFAULT_ADMIN (here: a 48h
+    ///         timelock round). The owner can resume instantly; nobody can raise a cap instantly.
     function resume() external {
         TalosLib.checkOwner();
-        if (EmergencyStopLib.isStopped()) EmergencyStopLib._emergencyResume();
-        if (CircuitBreakerLib.isTripped(TalosLib.VELOCITY_KEY)) CircuitBreakerLib._reset(TalosLib.VELOCITY_KEY);
+        bool clearedStop = EmergencyStopLib.isStopped();
+        bool clearedVelocity = CircuitBreakerLib.isTripped(TalosLib.VELOCITY_KEY);
+        if (clearedStop) EmergencyStopLib._emergencyResume();
+        if (clearedVelocity) CircuitBreakerLib._reset(TalosLib.VELOCITY_KEY);
+        emit Resumed(msg.sender, clearedStop, clearedVelocity);
     }
 
     function setAllowlist(Tier tier, address payee, bool allowed) external {

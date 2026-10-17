@@ -19,15 +19,15 @@ See [docs/PRIOR_WORK.md](docs/PRIOR_WORK.md).
 ## Honest gaps and deviations from the plan
 - **Unaudited.** The vault is kept at or below 50 USDC on mainnet.
 - **Two Lattice facets were dropped.** `GovernedVault` is an ERC-4626 share vault with no payout path. `SpendingLimit` is an ERC-6900 account module and cannot be installed on a diamond. The diamond holds USDC directly. `pay` and `approveQueued` are the only exits; a test asserts the loupe exposes no other path.
-- **Agent authority comes from Lattice's `SessionKey` facet.** The agent is an EOA with grants for `commit`, `pay` and `queue` on the diamond, expiring 2026-10-20. Per-tx caps live in `TreasuryPolicyFacet`. Daily budgets come from `RateLimiter`, a rolling bucket rather than a calendar day.
-- **The owner can resume instantly.** Lattice makes `emergencyResume` admin-only, which here would mean a 48h round. Talos adds an owner-only `resume()` that clears the EmergencyStop and the velocity breaker. The owner can unpause instantly. Nobody can raise a cap instantly.
-- **Payment tests use a mock token.** Foundry cannot simulate USDC moves on Arc: they go through a node precompile that revm lacks. `pay()` logic is tested against a mock ERC-20. The real path is proven on Arc testnet and mainnet by recorded transactions (docs/ADDRESSES.md).
+- **Agent authority comes from Lattice's `SessionKey` facet.** Two keys are registered at init, both expiring 2026-11-30: the agent's Circle developer-controlled EOA (`commit`, `pay`, `queue`) and a hot key with `commit` only, so REFUSE commits never wait on the MPC signer. A table-driven test checks the access control of every selector cut into the diamond. Per-tx caps live in `TreasuryPolicyFacet`. Daily budgets come from `RateLimiter`, a rolling bucket rather than a calendar day.
+- **The owner can resume instantly.** Lattice makes `emergencyResume` admin-only, which here would mean a 48h round. Talos adds an owner-only `resume()` that clears only the EmergencyStop flag and the velocity counter (RateLimiter budgets are untouched) and emits `Resumed`. The owner can unpause instantly. Nobody can raise a cap instantly.
+- **Payment logic is unit-tested against a mock token; the real-USDC path runs under Arc Foundry.** Stock Foundry cannot execute Arc's USDC precompile. `test/ArcUsdc.t.sol` forks Arc testnet and pays real USDC under `arc-forge`; it is skipped under plain `forge`. Testnet and mainnet transactions are recorded in docs/ADDRESSES.md.
+- **Decision hashes bind chain and deployment.** The preimage is `abi.encode(chainid, vault, attemptId, payee, amount, tier, keccak(reason), modelId, keccak(prompt))`; the contract stores only the hash, and the shared vector is checked in Solidity and TypeScript.
 - `RateLimiter.consume` is unguarded upstream, so it is deliberately not cut.
 
 ## Layout
 - `contracts/` — Foundry; Lattice pinned at `v0.5.0` in `contracts/lib/lattice`
-- `apps/agent/` — Bun service: operator loop, arena, tools
-- `apps/web/` — chat, `/evidence`, `/policy`
+- `apps/web/` — one Next.js app on Vercel: agent, arena, `/evidence`, `/policy`; the hourly cycle is triggered by GitHub Actions
 
 ## Build
 ```sh

@@ -16,12 +16,14 @@ import {TalosLib, Tier, Params} from "../libraries/TalosLib.sol";
 /// @notice Runs once inside `Lattice.initialize`. Afterwards the diamond is its own sole DEFAULT_ADMIN, so every
 ///         cap, allowlist, session key and upgrade change is a TimelockController round (`timelockDelay`) that
 ///         only the owner can propose and execute. The agent key holds no role at all: it is a SessionKey with
-///         grants for `commit`, `pay` and `queue` on this diamond, expiring at `agentExpiry`.
+///         grants for `commit`, `pay` and `queue` on this diamond, expiring at `agentExpiry`. `hotKey` is a second
+///         SessionKey with `commit` only, so REFUSE commits never wait on the agent's MPC signer.
 contract TalosInit {
     struct Config {
         address asset;
         address owner;
         address agent;
+        address hotKey;
         uint48 agentExpiry;
         uint256 timelockDelay;
         Params params;
@@ -55,5 +57,8 @@ contract TalosInit {
         perms[1] = ISessionKey.Permission(address(this), TreasuryPolicyFacet.pay.selector);
         perms[2] = ISessionKey.Permission(address(this), TreasuryPolicyFacet.queue.selector);
         ISessionKey(address(this)).registerSessionKey(c.agent, 0, c.agentExpiry, perms);
+        ISessionKey.Permission[] memory commitOnly = new ISessionKey.Permission[](1);
+        commitOnly[0] = perms[0];
+        ISessionKey(address(this)).registerSessionKey(c.hotKey, 0, c.agentExpiry, commitOnly);
     }
 }
