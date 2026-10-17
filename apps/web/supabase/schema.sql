@@ -14,8 +14,9 @@ create table if not exists attempts (
   toll_status text check (toll_status in ('completed', 'pending', 'settle_failed')),
   toll_tx text,
   verdict text check (verdict in ('PAY', 'QUEUE', 'REFUSE')),
-  reason text,
+  reason text,                            -- exactly the text hashed into decision_hash
   reason_hash text,
+  note text,                              -- pay reverted / commit failed; never part of the hash
   decision_hash text unique,
   commit_tx text,
   pay_tx text,

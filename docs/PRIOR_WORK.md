@@ -12,4 +12,9 @@
 - Evidence page and traction reporting.
 - Mainnet deployment, verification, live operations log.
 
+## Reused files (exact list)
+| File in this repo | Origin | Change |
+| --- | --- | --- |
+| `apps/web/lib/brain/llm.ts` | engye `lib/llm.ts` (pre-Tameion) | single role; strict JSON schema on gpt-oss; env names |
+
 Any Lattice facet patched during the event gets a labelled upstream PR and a line here.
