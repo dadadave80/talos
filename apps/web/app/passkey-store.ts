@@ -60,3 +60,20 @@ export function removeSession(address: string) {
 export function signOutSession() {
   write({ ...readStore(), current: null });
 }
+
+// Which wallet an account registered as its recovery key. Circle has no cheap read for it, so this is a per-device
+// label (as in engye); the on-chain registration is the truth, and the tx hash links to it.
+export type Recovery = { wallet: string; tx: string; at: string };
+const REC = (a: string) => `talos.recovery.${a.toLowerCase()}`;
+export function getRecovery(account: string): Recovery | null {
+  try {
+    return JSON.parse(localStorage.getItem(REC(account)) || "null");
+  } catch {
+    return null;
+  }
+}
+export function setRecovery(account: string, r: Recovery) {
+  try {
+    localStorage.setItem(REC(account), JSON.stringify(r));
+  } catch {}
+}

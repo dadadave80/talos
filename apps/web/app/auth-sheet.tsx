@@ -24,13 +24,13 @@ const quiet = "inline-flex min-h-11 cursor-pointer items-center font-sans text-[
 /// optional so older callers still fit.
 export function AuthSheet(p: {
   state: SheetState; error: string; passkeys: boolean; mode?: Mode;
-  onPasskey: () => void; onPasskeyLogin: () => void; onWallet: () => void; onClose: () => void;
+  onPasskey: () => void; onPasskeyLogin: () => void; onRecover: () => void; onWallet: () => void; onClose: () => void;
 }) {
   const { addr, passkey, accounts, freeLeft, switchTo, forget, announce } = useSession();
   // "wallet" is "continue" opened from a browser-wallet button: the wallet button is the first action.
   const wallet = p.mode === "wallet";
   const mode = p.mode === "wallet" ? "continue" : (p.mode ?? "continue");
-  const [view, setView] = useState<"main" | "switch">(mode === "switch" ? "switch" : "main");
+  const [view, setView] = useState<"main" | "switch" | "recover">(mode === "switch" ? "switch" : "main");
   const dialog = useRef<HTMLDialogElement>(null);
   const down = useRef<EventTarget | null>(null);
   const busy = p.state === "passkey" || p.state === "connecting";
@@ -54,7 +54,7 @@ export function AuthSheet(p: {
   const last = accounts.at(-1) ?? null;
   const pick = mode === "login" || mode === "switch";
   const host = typeof location === "undefined" ? "this site" : location.hostname;
-  const title = view === "switch" ? "Switch passkey" : p.state === "done" ? "Signed in" : mode === "create" ? "Add a passkey" : "Sign in";
+  const title = view === "recover" ? "Recover a lost passkey" : view === "switch" ? "Switch passkey" : p.state === "done" ? "Signed in" : mode === "create" ? "Add a passkey" : "Sign in";
   const cancelled = p.error.startsWith("The passkey prompt was cancelled");
 
   return (
@@ -116,6 +116,26 @@ export function AuthSheet(p: {
               ← Back
             </button>
           </>
+        ) : view === "recover" && p.state !== "done" ? (
+          <>
+            <p className="text-[15px] leading-[22px] text-ink-2">
+              Connect the wallet you registered as this account&apos;s recovery key. Your device makes a new passkey, and the wallet
+              signs the switch to it. Gas is sponsored; the account and its record stay the same.
+            </p>
+            <button
+              type="button"
+              data-first
+              onClick={p.onRecover}
+              disabled={busy}
+              className="h-12 cursor-pointer bg-bronze px-6 text-base font-semibold text-bg hover:bg-bronze-hover disabled:cursor-wait disabled:bg-rule disabled:text-ink"
+            >
+              {busy ? "Confirm on your device and wallet…" : "Recover with my wallet"}
+            </button>
+            {failed && <p role="alert" className="text-[13px] leading-5 text-refuse">{p.error}.</p>}
+            <button type="button" onClick={() => setView("main")} disabled={busy} className="h-11 cursor-pointer self-start text-[15px] font-medium text-ink-2 hover:text-ink">
+              ← Back
+            </button>
+          </>
         ) : p.state === "done" ? (
           // WalletControl announces the sign-in once, from the header.
           <p className="font-mono text-sm tabular-nums text-ink">
@@ -172,6 +192,11 @@ export function AuthSheet(p: {
               <p role="alert" className="text-[13px] leading-5 text-refuse">
                 {cancelled ? "You closed the passkey prompt. Nothing was created." : `${p.error}. Try again.`}
               </p>
+            )}
+            {p.passkeys && mode !== "create" && (
+              <button type="button" onClick={() => setView("recover")} disabled={busy} className={`${quiet} self-center text-[13px]`}>
+                Lost your passkey? Recover with a wallet
+              </button>
             )}
             {p.passkeys && (
               <p className="text-[13px] leading-5 text-ink-3">

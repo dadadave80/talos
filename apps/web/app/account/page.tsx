@@ -18,7 +18,7 @@ export default async function AccountPage() {
         <span className="smallcaps text-sm text-ink-3">Talos · Account</span>
         <h1 className="font-display text-4xl font-medium leading-[1.1] tracking-[-0.01em] lg:text-[56px] lg:leading-[60px]">Your account.</h1>
         <p className="max-w-[60ch] text-[17px] leading-7 text-ink-2">
-          Your free attempts, your record and the passkeys saved on this device. Nothing on this page moves money.
+          Your free attempts, your record, your passkeys and how to recover them. Nothing on this page moves money.
         </p>
       </section>
       <AccountPanel

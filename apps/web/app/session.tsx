@@ -6,7 +6,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { getAddress, toHex, type Address, type Hex } from "viem";
 import type { Receipt } from "@/lib/share";
-import { accountFromCredential, circleConfigured, loginCredential, registerCredential, signFreeTier } from "@/lib/circleWallet";
+import { accountFromCredential, circleConfigured, loginCredential, recoverWithWallet, registerCredential, signFreeTier } from "@/lib/circleWallet";
 import { AuthSheet, type SheetState } from "./auth-sheet";
 import { addSession, lastSession, readStore, removeSession, signOutSession, STORE, switchTo as switchStored, type PasskeySession } from "./passkey-store";
 
@@ -216,6 +216,29 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [signedIn],
   );
 
+  // Lost passkey: the registered recovery wallet signs the swap of the account's owner to a new passkey on this device.
+  const recover = useCallback(async () => {
+    const w = eth();
+    if (!w) {
+      setSheetError("No browser wallet here. Open Talos where your recovery wallet lives, then try again");
+      return setSheet("error");
+    }
+    const id = ++flow.current;
+    setSheet("passkey");
+    try {
+      const [a] = (await w.request({ method: "eth_requestAccounts" })) as string[];
+      const label = `TALOS-${Math.random().toString(36).slice(2, 8)}`;
+      const { credential, address } = await recoverWithWallet(w as never, getAddress(a), label);
+      signedIn(addSession({ address, credential, label }), null, id === flow.current);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[recover]", e);
+      if (id !== flow.current) return;
+      setSheetError(/NotAllowed|cancel|abort|denied|rejected/i.test(msg) ? "Recovery was cancelled; nothing changed" : `Recovery didn't complete (${msg.slice(0, 160)})`);
+      setSheet("error");
+    }
+  }, [signedIn]);
+
   const connect = useCallback(async () => {
     const w = eth();
     if (!w) {
@@ -307,6 +330,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           passkeys={circleConfigured()}
           onPasskey={() => passkeyFlow(mode === "wallet" ? "continue" : mode === "continue" || mode === "create" ? mode : "login")}
           onPasskeyLogin={() => passkeyFlow("login")}
+          onRecover={recover}
           onWallet={connect}
           onClose={close}
         />

@@ -46,96 +46,117 @@ export function SiteHeader() {
   );
 }
 
-// One row per Circle and Arc tool, worded as in the README's stack table. Only what runs in production says live.
-const STATUS: { tool: string; use: string; status: string; tone: string; proof?: string }[] = [
-  { tool: "Arc", use: `The vault, every commit and payment, USDC as gas · ${network}`, status: "live", tone: "text-pay" },
+// One entry per Circle and Arc tool, worded as in the README's stack table. Only what runs in production says live.
+const STATUS: { tool: string; use: string; status: "live" | "not built" | "cut"; proof?: string; proofLabel?: string }[] = [
+  { tool: "Arc", use: "The vault, every commit and payment; USDC is gas", status: "live" },
   {
     tool: "Circle Modular Wallets",
-    use: "Passkey sign-in: a passkey-owned smart account (MSCA) signs free attempts; undeployed accounts verify through ERC-6492",
+    use: "Passkey sign-in and wallet recovery; undeployed accounts verify through ERC-6492",
     status: "live",
-    tone: "text-pay",
     proof: `${REPO}/blob/main/apps/web/scripts/circle-6492-check.ts`,
+    proofLabel: "the ERC-6492 check script",
   },
   {
     tool: "Circle Gateway + x402",
-    use: "The agent pays its own bills: a daily float into Gateway, then an Arc RPC read from Quicknode each cycle over x402",
+    use: "The agent pays its own bills: a daily float, then an RPC read per cycle",
     status: "live",
-    tone: "text-pay",
     proof: "https://explorer.testnet.arc.io/tx/0xca88795c86c7e48dcc950db8343ba38ccb5cb1247b7b739225ac12d75cb85ea9",
+    proofLabel: "the Gateway deposit",
   },
-  { tool: "Circle Facilitator Service", use: "The 0.05 USDC paid attempt, settled into the vault", status: "not built", tone: "text-ink-3" },
-  { tool: "Bridge Kit / CCTP", use: "Contributor payouts on Base", status: "cut", tone: "text-ink-3" },
+  { tool: "Circle Facilitator Service", use: "The 0.05 USDC paid attempt", status: "not built" },
+  { tool: "Bridge Kit / CCTP", use: "Contributor payouts on Base", status: "cut" },
 ];
+const TONE = { live: "text-pay", "not built": "text-ink-3", cut: "text-ink-3" } as const;
 
-const link = "flex h-11 items-center text-ink-2 hover:text-ink lg:h-8";
+const link = "flex min-h-11 items-center gap-1.5 text-[15px] text-ink-2 hover:text-ink lg:min-h-8 lg:text-sm";
+const head = "pb-2 font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3";
+
+function Col({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <nav aria-label={title} className="flex flex-col">
+      <h2 className={head}>{title}</h2>
+      {children}
+    </nav>
+  );
+}
 
 export function SiteFooter() {
   const v = vault();
   return (
-    <footer className="border-t border-rule px-6 pb-10 pt-10 text-[13px] lg:px-20">
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-12 lg:gap-x-6">
-        <div className="flex flex-col gap-3 lg:col-span-5">
-          <span className="flex items-center gap-2 font-display text-lg font-semibold tracking-[0.08em] text-ink">
-            <Mark size={22} />
+    <footer className="mt-8 border-t border-rule px-6 pb-10 pt-12 lg:px-20 lg:pt-16">
+      <div className="grid grid-cols-2 gap-x-6 gap-y-10 lg:grid-cols-12">
+        <div className="col-span-2 flex flex-col gap-4 lg:col-span-5">
+          <span className="flex items-center gap-2.5 font-display text-xl font-semibold tracking-[0.08em] text-ink">
+            <Mark size={26} />
             TALOS
           </span>
-          <p className="max-w-[40ch] text-[15px] leading-[22px] text-ink-2">An AI treasury operator for Lattice, bounded by contract.</p>
-          <span className="font-mono text-xs tabular-nums text-ink-3">
+          <p className="max-w-[34ch] font-display text-lg leading-7 text-ink-2">
+            An AI treasurer for Lattice. Its limits live in a contract it cannot change.
+          </p>
+          <span className="inline-flex items-center gap-2 self-start border border-rule px-2.5 py-1 font-mono text-xs tabular-nums text-ink-2">
+            <span aria-hidden="true" className="size-1.5 bg-pay" />
             {network} · chain {chain.id}
           </span>
         </div>
-        <nav aria-label="Site" className="flex flex-col lg:col-span-3">
-          <h2 className="smallcaps pb-1 text-[13px] text-ink-3">Site</h2>
-          <Link href="/" className={link}>Home</Link>
-          <Link href="/arena" className={link}>Arena</Link>
-          <Link href="/evidence" className={link}>Evidence</Link>
-          <Link href="/policy" className={link}>Policy</Link>
-          <Link href="/account" className={link}>Account</Link>
-        </nav>
-        <div className="flex flex-col lg:col-span-4">
-          <h2 className="smallcaps pb-1 text-[13px] text-ink-3">On-chain</h2>
-          {v && (
-            <a href={`${explorer}/address/${v}`} className={link}>
-              <span>
+        <div className="lg:col-span-2">
+          <Col title="Product">
+            <Link href="/" className={link}>Home</Link>
+            <Link href="/arena" className={link}>Arena</Link>
+            <Link href="/evidence" className={link}>Evidence</Link>
+            <Link href="/policy" className={link}>Policy</Link>
+            <Link href="/account" className={link}>Account</Link>
+          </Col>
+        </div>
+        <div className="lg:col-span-3">
+          <Col title="On-chain">
+            {v && (
+              <a href={`${explorer}/address/${v}`} className={link}>
                 Vault <span className="font-mono text-xs tabular-nums">{shortAddress(v)}</span> <span className="text-bronze">↗</span>
-              </span>
-            </a>
-          )}
-          <a href={`${explorer}/address/${USDC}`} className={link}>
-            <span>
+              </a>
+            )}
+            <a href={`${explorer}/address/${USDC}`} className={link}>
               USDC <span className="font-mono text-xs tabular-nums">{shortAddress(USDC)}</span> <span className="text-bronze">↗</span>
-            </span>
-          </a>
-          <a href={`${REPO}/blob/main/docs/ADDRESSES.md`} className={link}>Contracts (ADDRESSES.md)</a>
-          <a href={REPO} className={link}>GitHub</a>
-          <a href="https://github.com/dadadave80/lattice" className={link}>Lattice</a>
+            </a>
+            <a href={`${REPO}/blob/main/docs/ADDRESSES.md`} className={link}>Contracts</a>
+            <Link href="/evidence#operator" className={link}>Operator log</Link>
+          </Col>
+        </div>
+        <div className="lg:col-span-2">
+          <Col title="Source">
+            <a href={REPO} className={link}>GitHub <span className="text-bronze">↗</span></a>
+            <a href="https://github.com/dadadave80/lattice" className={link}>Lattice <span className="text-bronze">↗</span></a>
+            <a href={`${REPO}/blob/main/docs/OPERATIONS.md`} className={link}>Runbook</a>
+            <a href={`${REPO}/blob/main/docs/PRIOR_WORK.md`} className={link}>Prior work</a>
+          </Col>
         </div>
       </div>
-      <section aria-labelledby="stack-title" className="mt-10 flex flex-col">
-        <h2 id="stack-title" className="smallcaps pb-2 text-[13px] text-ink-3">Circle and Arc stack</h2>
-        <ul className="flex flex-col">
-          {STATUS.map((s) => (
-            <li key={s.tool} className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-0.5 border-t border-rule py-2.5 lg:grid-cols-[220px_1fr_auto] lg:items-baseline">
-              <span className="font-medium text-ink">{s.tool}</span>
-              <span className="col-span-2 row-start-2 text-ink-2 lg:col-span-1 lg:row-start-auto">{s.use}</span>
-              <span className={`col-start-2 row-start-1 text-right ${s.tone} lg:col-start-auto lg:row-start-auto`}>
+
+      <section aria-labelledby="stack-title" className="mt-12 flex flex-col">
+        <h2 id="stack-title" className={head}>Circle and Arc stack</h2>
+        <ul className="grid grid-cols-1 border-t border-rule sm:grid-cols-2 lg:grid-cols-5">
+          {STATUS.map((s, i) => (
+            <li key={s.tool} className={`flex flex-col gap-1.5 border-b border-rule py-4 sm:pr-5 lg:border-b-0 ${i ? "lg:border-l lg:pl-5" : ""}`}>
+              <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] uppercase tracking-[0.12em] ${TONE[s.status]}`}>
+                <span aria-hidden="true" className={`size-1.5 ${s.status === "live" ? "bg-pay" : "border border-ink-3"}`} />
                 {s.status}
-                {s.proof && (
-                  <>
-                    {" · "}
-                    <a href={s.proof} className="inline-flex min-h-11 items-center underline decoration-rule underline-offset-4 lg:min-h-0" aria-label="Proof: the ERC-6492 check script on GitHub">
-                      proof ↗
-                    </a>
-                  </>
-                )}
               </span>
+              <span className="text-sm font-medium text-ink">{s.tool}</span>
+              <span className="text-[13px] leading-5 text-ink-2">{s.use}</span>
+              {s.proof && (
+                <a href={s.proof} className="inline-flex min-h-11 items-center self-start text-[13px] font-medium lg:min-h-6" aria-label={`Proof: ${s.proofLabel}`}>
+                  Proof ↗
+                </a>
+              )}
             </li>
           ))}
         </ul>
       </section>
-      <div className="mt-6 flex flex-col gap-2 border-t border-rule pt-6">
-        <span className="text-ink-3">The arena is a security program, not a game of chance: no prize pool, no escalating fees, fixed micro-bounties.</span>
-        <span className="text-ink-3">Built for Tameion · 2026</span>
+
+      <div className="mt-8 flex flex-col gap-3 border-t border-rule pt-6 lg:flex-row lg:items-baseline lg:justify-between">
+        <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-3">Built at Tameion · MMXXVI · Circle × Arc</span>
+        <span className="max-w-[60ch] text-[13px] leading-5 text-ink-3">
+          The arena is a security program, not a game of chance: no prize pool, no escalating fees, fixed micro-bounties.
+        </span>
       </div>
     </footer>
   );

@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { FREE_PER_WALLET } from "@/lib/accounts/freeTier";
-import { circleConfigured } from "@/lib/circleWallet";
+import type { Address as Addr } from "viem";
+import { circleConfigured, registerRecovery } from "@/lib/circleWallet";
+import { getRecovery, setRecovery, type Recovery as Rec } from "../passkey-store";
 import type { Receipt } from "@/lib/share";
 import { Address, shortAddress } from "../address";
 import { AddressGlyph } from "../address-glyph";
@@ -63,7 +65,7 @@ function Block({ title, extra, className = "", children }: { title: string; extr
 
 const Num = ({ v }: { v: number | string | null }) => <span className="inline-block min-w-[1ch] font-mono tabular-nums text-ink">{v ?? "–"}</span>;
 
-const RIGHT = ["Identity", "Passkeys on this device", "Appearance"];
+const RIGHT = ["Identity", "Passkeys on this device", "Recovery", "Appearance"];
 const LEFT = ["Today", "Record", "Your attempts"];
 
 export function AccountPanel({ explorer, perTx, cap }: Props) {
@@ -130,10 +132,78 @@ export function AccountPanel({ explorer, perTx, cap }: Props) {
       <div className="flex min-w-0 flex-col lg:col-span-5 lg:self-start lg:[@media(min-height:62rem)]:sticky lg:[@media(min-height:62rem)]:top-20">
         <Identity explorer={explorer} team={team} className="max-lg:hidden" />
         <Passkeys />
+        <Recovery explorer={explorer} />
         <Appearance />
         <SignOut />
       </div>
     </div>
+  );
+}
+
+// Recovery, as in engye: register a wallet you control as this passkey account's recovery key (Circle Modular Wallets
+// recoveryActions, gas sponsored). If the device is lost, "Recover a lost passkey" in the sign-in sheet uses it.
+function Recovery({ explorer }: { explorer: string }) {
+  const { kind, passkey, addr, announce } = useSession();
+  const [rec, setRec] = useState<Rec | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => setRec(addr ? getRecovery(addr) : null), [addr]);
+
+  async function register() {
+    if (!passkey || !addr) return;
+    const w = (window as unknown as { ethereum?: { request: (a: { method: string }) => Promise<unknown> } }).ethereum;
+    if (!w) return setErr("No browser wallet here. Install one (MetaMask, Rabby, Coinbase Wallet), then try again.");
+    setBusy(true);
+    setErr(null);
+    try {
+      const [wallet] = (await w.request({ method: "eth_requestAccounts" })) as string[];
+      if (!wallet) throw new Error("The wallet returned no account.");
+      if (wallet.toLowerCase() === addr.toLowerCase()) throw new Error("That is this account. Pick a different wallet.");
+      const tx = await registerRecovery(passkey.credential, wallet as Addr);
+      const r = { wallet, tx, at: new Date().toISOString() };
+      setRecovery(addr, r);
+      setRec(r);
+      announce(`Recovery key ${shortAddress(wallet)} registered`);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message.split("\n")[0] : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Block
+      title="Recovery"
+      extra={
+        kind === "passkey" && (
+          <button onClick={register} disabled={busy} className="min-h-11 cursor-pointer text-sm font-medium text-bronze hover:text-focus disabled:cursor-wait disabled:text-ink-3 lg:min-h-8">
+            {busy ? "Confirm on your device…" : rec ? "Change recovery key" : "Register a recovery key"}
+          </button>
+        )
+      }
+    >
+      {kind !== "passkey" ? (
+        <p className="mt-3 text-sm leading-5 text-ink-2">Recovery is for passkey accounts. A browser wallet recovers through its own seed phrase.</p>
+      ) : rec ? (
+        <div className="mt-3 flex gap-3 text-sm leading-5">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.2" className="mt-0.5 flex-none text-pay" aria-hidden="true">
+            <path d="M8 1.5 2.5 3.5v4c0 3.3 2.3 5.9 5.5 7 3.2-1.1 5.5-3.7 5.5-7v-4L8 1.5Z" />
+            <path d="m5.5 8 1.8 1.8L10.8 6.3" />
+          </svg>
+          <p className="text-ink-2">
+            <span className="font-medium text-ink">Recovery is active.</span> Wallet <span className="font-mono text-xs text-ink">{shortAddress(rec.wallet)}</span> can hand
+            this account to a new passkey: choose <span className="text-ink">Lost your passkey? Recover with a wallet</span> when signing in.{" "}
+            <a href={`${explorer}/tx/${rec.tx}`} className="whitespace-nowrap font-medium">Registration ↗</a>
+          </p>
+        </div>
+      ) : (
+        <p className="mt-3 text-sm leading-5 text-ink-2">
+          No recovery key yet. This account lives only in this device&apos;s passkey; register a wallet you control so a lost or
+          wiped device doesn&apos;t lock you out. Gas is sponsored.
+        </p>
+      )}
+      {err && <p role="alert" className="mt-2 text-[13px] leading-5 text-refuse">{err}</p>}
+    </Block>
   );
 }
 
@@ -154,7 +224,7 @@ function Identity({ explorer, team, className }: { explorer: string; team: boole
           <>
             <p className="border-t border-rule py-2.5">
               <span className="text-ink">Passkey</span>
-              <span className="text-ink-2"> · Circle Modular Wallets smart account (MSCA). Its signatures verify through ERC-6492, so it needs no on-chain deployment.</span>
+              <span className="text-ink-2"> · Circle Modular Wallets smart account (MSCA). Signing needs no deployment (ERC-6492); registering a recovery key deploys it, gas sponsored.</span>
             </p>
             <p className="border-t border-rule py-2.5 text-ink-2">
               Passkey bound to <span className="font-mono text-xs text-ink">{rp}</span>
