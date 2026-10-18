@@ -31,6 +31,8 @@ The arena is a security program, not a game of chance: no prize pool, no escalat
 
 Contracts: [docs/ADDRESSES.md](docs/ADDRESSES.md) lists the vault diamond, all 17 facets and inits, with Sourcify exact matches.
 
+**Reuse it:** the guardrails are split out in [talos-primitives](https://github.com/dadadave80/talos-primitives) (MIT): the commit-before-pay and bounded-spending facets with their tests and deploy script, plus the decision hash, ERC-6492 signed claims, the Gateway + x402 buyer and bounty inheritance in TypeScript. Point any agent at them.
+
 ## How a message travels
 
 ```mermaid
@@ -124,7 +126,7 @@ Lattice is pinned at `v0.5.0` as a submodule. Files adapted from [engye](https:/
 - **The agent signs with a server-held key**, not a Circle developer-controlled wallet; the diamond bounds that key exactly as before.
 - **Lattice deviations.** `GovernedVault` (an ERC-4626 share vault with no payout path) and `SpendingLimit` (an ERC-6900 module, not installable on a diamond) were dropped; per-tx caps live in `TreasuryPolicyFacet`, daily budgets in `RateLimiter` (a rolling bucket, not a calendar day). Lattice's `emergencyResume` is admin-only (a 48 h round here), so Talos adds an owner-only `resume()` that clears only the stop flag and the velocity counter.
 - **Message excerpts.** Receipts and the feed quote the first 80 characters of a message; the full text is never stored.
-- **Unaudited.** Hosting is Vercel Hobby. Cut for time: talos-primitives, a leaderboard, CCTP payout, owner notifications.
+- **Unaudited.** Hosting is Vercel Hobby. Cut for time: a leaderboard, CCTP payout, owner notifications.
 
 ## License
 
