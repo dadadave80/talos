@@ -5,7 +5,7 @@ export function Chapter({ n, kicker, title, lede, id, children, wide = false }: 
   return (
     <section id={id} aria-labelledby={`${id}-h`} className="flex flex-col">
       <div className="rivets" aria-hidden="true" />
-      <div className={`mx-6 flex flex-col gap-8 py-16 lg:mx-20 lg:py-24 ${wide ? "" : "lg:mx-auto lg:w-full lg:max-w-[52rem]"}`}>
+      <div className={`mx-6 flex flex-col gap-8 py-16 lg:mx-20 lg:py-24 ${wide ? "" : "lg:max-w-[52rem]"}`}>
         <div className="flex flex-col gap-3">
           <span className="flex items-center gap-3 font-mono text-[11px] uppercase tracking-[0.18em] text-bronze">
             <span aria-hidden="true" className="h-px w-8 bg-bronze" />
