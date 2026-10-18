@@ -205,7 +205,8 @@ export function Arena({ initial }: { initial: Snap }) {
     : amtVal > Number(d.perTx) ? { t: `Above ${d.perTx} USDC needs a human signature — this will QUEUE at best.`, c: "text-queue" }
     : /0x[a-fA-F0-9]{4,}/.test(draft) ? { t: "Talos only ever pays the wallet that signs the message.", c: "text-ink-2" }
     : /#\d+|\bPR\s*\d+|pull\/\d+/i.test(draft) ? { t: "The arena does not look up PRs; merged bounty PRs are paid by the hourly operator cycle.", c: "text-ink-2" }
-    : { t: "Free: you sign a message, nothing leaves your wallet. Paid attempts (0.05 USDC into the vault) are not open yet.", c: "text-ink-3" };
+    : !draft.trim() ? { t: signedIn ? "Write a message, then send. Five free attempts a day." : "Write a message; you'll sign in when you send it.", c: "text-ink-3" }
+    : { t: "Sending asks for a signature only. Nothing leaves your wallet.", c: "text-ink-3" };
 
   const sendLabel = !signedIn ? "Sign in and send" : pending ? "Sending…" : cooldown > 0 || outOfFree ? "Send" : `Send · free (${left ?? FREE_PER_WALLET} left)`;
   const canSend = signedIn && !pending && cooldown === 0 && !outOfFree && !!draft.trim();
@@ -263,16 +264,6 @@ export function Arena({ initial }: { initial: Snap }) {
           </>
         )}
       </div>
-      <Link href="/evidence" className="mx-6 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-0.5 border-y border-rule py-2 font-mono text-xs leading-5 text-ink-2 hover:text-ink lg:mx-20">
-        <span className="text-ink-3">External wallets</span>
-        {record.map(([l, v]) => (
-          <span key={l}>
-            {l} <span className="text-ink tabular-nums">{v}</span>
-          </span>
-        ))}
-        {teamLine && <span className="text-ink-3">· team tests, not counted: {teamLine}</span>}
-        <span className="ml-auto text-bronze">Evidence →</span>
-      </Link>
 
       {banner && (
         <div className={`mx-6 mt-6 flex min-h-12 items-center gap-4 border-b border-t-2 border-b-rule py-2.5 text-[15px] leading-[22px] lg:mx-20 ${banner.c}`} role="status">
@@ -282,7 +273,7 @@ export function Arena({ initial }: { initial: Snap }) {
       )}
 
       <section className="flex flex-col px-6 pb-16 pt-6 lg:grid lg:grid-cols-12 lg:gap-x-6 lg:gap-y-8 lg:px-20 lg:pt-8">
-        <aside className="flex flex-col gap-3 max-lg:order-1 max-lg:pb-6 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
+        <aside className="flex flex-col gap-3 max-lg:order-2 max-lg:border-t max-lg:border-rule max-lg:pb-8 max-lg:pt-5 lg:col-span-5 lg:col-start-8 lg:row-span-2 lg:row-start-1">
           <BlastRadius m={meter} id="tour-meter" />
           <p className="text-[13px] leading-5 text-ink-2">
             {FREE_PER_WALLET} free a day · {d.perTx} per message · {d.cap} per rolling day · above that a human signs ·{" "}
@@ -290,24 +281,20 @@ export function Arena({ initial }: { initial: Snap }) {
           </p>
         </aside>
 
-        <div className="max-lg:order-3 max-lg:sticky max-lg:bottom-0 max-lg:-mx-6 max-lg:border-t max-lg:border-rule max-lg:bg-bg max-lg:px-6 max-lg:pb-4 max-lg:pt-3 lg:col-span-7 lg:row-start-1">
+        <div className="max-lg:order-1 max-lg:pb-8 lg:col-span-7 lg:row-start-1">
           <div id="tour-composer" className="flex flex-col gap-3">
-            <h1 className="font-display text-2xl font-medium leading-tight lg:text-[32px] lg:leading-9">Talk Talos into paying you.</h1>
-            <p className="max-w-[60ch] text-[15px] leading-[22px] text-ink-2 max-lg:hidden">
-              It pays Lattice contributors for merged PRs and the project&apos;s own bills; convince it you&apos;ve earned something.{" "}
-              <Link href="/policy#brain" className="font-medium">Read Talos&apos;s instructions</Link>
+            <h1 className="font-display text-[28px] font-medium leading-tight lg:text-[40px] lg:leading-[1.1]">Talk Talos into paying you.</h1>
+            <p className="max-w-[60ch] text-[17px] leading-7 text-ink-2">
+              Write it one message asking for USDC. If you convince it, up to <span className="text-ink">{meter.num} USDC</span> goes to the wallet you sign with.
             </p>
-            <div className="flex flex-wrap gap-x-5 gap-y-1">
-              {CHIPS.map(([label, stub], i) => (
-                <button
-                  key={label}
-                  onClick={() => (setChip(i), setDraft(stub))}
-                  className={`min-h-11 cursor-pointer text-sm font-medium underline underline-offset-[6px] lg:min-h-8 ${i > 2 ? "max-lg:hidden" : ""} ${chip === i ? "text-ink decoration-bronze" : "text-ink-2 decoration-rule hover:text-ink"}`}
-                >
-                  {label}
-                </button>
+            <ol className="flex flex-wrap gap-x-6 gap-y-2 pt-1 text-sm text-ink-2" aria-label="How it works">
+              {["Write a message", "Sign it, free", "Get a verdict on Arc"].map((t, i) => (
+                <li key={t} className="flex items-center gap-2">
+                  <span className="flex size-6 flex-none items-center justify-center border border-bronze font-mono text-xs text-bronze">{i + 1}</span>
+                  {t}
+                </li>
               ))}
-            </div>
+            </ol>
             <div className="flex flex-col rounded-md border border-rule bg-raised focus-within:border-bronze">
               <label htmlFor="case" className="sr-only">Your message to Talos</label>
               <textarea
@@ -317,10 +304,10 @@ export function Arena({ initial }: { initial: Snap }) {
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && (signedIn ? send() : signInAndSend())}
                 aria-keyshortcuts="/"
-                rows={Math.min(4, Math.max(1, Math.ceil(draft.length / 70)))}
+                rows={Math.min(6, Math.max(3, Math.ceil(draft.length / 70)))}
                 maxLength={2000}
-                placeholder="Make your case."
-                className="resize-none bg-transparent px-4 py-3.5 text-base leading-6 text-ink outline-none placeholder:text-ink-3"
+                placeholder="Write your message to Talos. Say who you are, what you did for Lattice, and how much you want."
+                className="resize-none bg-transparent px-4 py-4 text-[17px] leading-7 text-ink outline-none placeholder:text-ink-3"
               />
               <div id="tour-free" className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-rule py-2 pl-4 pr-2">
                 <span className={`flex-1 text-[13px] leading-5 max-lg:basis-full ${hint.c}`} aria-live="polite">{hint.t}</span>
@@ -335,10 +322,25 @@ export function Arena({ initial }: { initial: Snap }) {
                 </button>
               </div>
             </div>
+            <div className="flex flex-col gap-2">
+              <span className="text-[13px] text-ink-3">Need an idea? Start from one of these:</span>
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] lg:flex-wrap">
+                {CHIPS.map(([label, stub], i) => (
+                  <button
+                    key={label}
+                    onClick={() => (setChip(i), setDraft(stub), composer.current?.focus())}
+                    className={`min-h-11 flex-none cursor-pointer border px-3.5 text-sm font-medium lg:min-h-9 ${chip === i ? "border-bronze text-ink" : "border-rule text-ink-2 hover:border-ink-3 hover:text-ink"}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <Link href="/policy#brain" className="self-start text-[13px] font-medium max-lg:hidden">What Talos is told to pay for →</Link>
+            </div>
           </div>
         </div>
 
-        <div className="flex flex-col gap-8 max-lg:order-2 lg:col-span-7 lg:row-start-2">
+        <div className="flex flex-col gap-8 max-lg:order-3 lg:col-span-7 lg:row-start-2">
           {(pending || fresh_) && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
@@ -411,6 +413,16 @@ export function Arena({ initial }: { initial: Snap }) {
                 ))}
                 {!snap.feed.length && <p className="py-4 text-sm text-ink-3">Nobody has tried yet.</p>}
                 <Link href="/evidence" className="flex min-h-11 items-center self-start text-sm font-medium">Every attempt is on Evidence →</Link>
+                <Link href="/evidence" className="mt-2 flex min-h-11 flex-wrap items-center gap-x-3 gap-y-0.5 border-y border-rule py-2 font-mono text-xs leading-5 text-ink-2 hover:text-ink">
+                  <span className="text-ink-3">External wallets</span>
+                  {record.map(([l, v]) => (
+                    <span key={l}>
+                      {l} <span className="text-ink tabular-nums">{v}</span>
+                    </span>
+                  ))}
+                  {teamLine && <span className="text-ink-3">· team tests, not counted: {teamLine}</span>}
+                  <span className="ml-auto text-bronze">Evidence →</span>
+                </Link>
               </div>
             ) : (
               <div id="panel-you" role="tabpanel" aria-labelledby="tab-you" className="flex flex-col gap-10 pt-6">
