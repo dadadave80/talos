@@ -39,7 +39,7 @@ export function PathOfAMessage(p: Props) {
       <Node id="you" title="You" sub="a signed message" href="/arena" />
       <Node id="talos" title="Talos decides" sub="pay · queue · refuse" href="/policy#brain" />
       <Node id="arc" title="Arc" sub="commit written first" href={p.commitUrl} />
-      <Node id="gate" title="Contract gate" href="/policy#caps" className="border-l-2 border-l-ink">
+      <Node id="gate" title="Contract gate" href="/policy#caps">
         <ul className="mt-1 flex flex-col gap-0.5 font-mono text-xs leading-4 text-ink-2">
           <li>cap {p.perTx} / message</li>
           <li>{p.cap} / rolling day</li>

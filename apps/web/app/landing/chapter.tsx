@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 
-// A chapter of the landing page: a riveted rule (Talos is a bronze man; rivets are the one ornament), the chapter
-// numeral, the heading and an optional one-line lede.
+// A chapter of the landing page: a rule, the chapter numeral, the heading and an optional one-line lede.
 export function Chapter({ n, kicker, title, lede, id, children, wide = false }: { n: string; kicker: string; title: string; lede?: ReactNode; id: string; children: ReactNode; wide?: boolean }) {
   return (
     <section id={id} aria-labelledby={`${id}-h`} className="flex flex-col">
