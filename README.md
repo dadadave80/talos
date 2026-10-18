@@ -6,7 +6,7 @@
   <a href="https://talos-treasury.vercel.app"><img alt="Live on talos-treasury.vercel.app" src="https://img.shields.io/badge/live-talos--treasury.vercel.app-c48a52?style=flat-square"></a>
   <a href="https://explorer.testnet.arc.io/address/0x8e3B18feB46a10F5829DE7C26e5535Fd6662bd89"><img alt="Arc testnet, chain 5042002" src="https://img.shields.io/badge/Arc-testnet%20%C2%B7%205042002-66b39b?style=flat-square"></a>
   <a href="https://github.com/dadadave80/talos/actions/workflows/cycle.yml"><img alt="Operator cycle" src="https://img.shields.io/github/actions/workflow/status/dadadave80/talos/cycle.yml?branch=main&label=operator%20cycle&style=flat-square"></a>
-  <a href="https://deepwiki.com/dadadave80/talos"><img alt="Ask DeepWiki" src="https://deepwiki.com/badge.svg"></a>
+  <a href="https://deepwiki.com/dadadave80/talos"><img alt="Ask DeepWiki" src="https://img.shields.io/badge/Ask-DeepWiki-c48a52?style=flat-square&logo=bookstack&logoColor=white"></a>
   <a href="LICENSE"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-1b1916?style=flat-square"></a>
   <img alt="Tests" src="https://img.shields.io/badge/tests-31%20forge%20%C2%B7%207%20bun-1b1916?style=flat-square">
   <img alt="Built for Tameion" src="https://img.shields.io/badge/built%20for-Tameion%202026-1b1916?style=flat-square">
