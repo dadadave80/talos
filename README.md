@@ -34,7 +34,7 @@ An hourly operator cycle (GitHub Actions → `POST /api/cycle`) and the arena sh
 | Tool | Use | Status |
 | --- | --- | --- |
 | Arc (USDC gas) | the vault, every commit and payment | live on testnet |
-| Circle Modular Wallets | passkey sign-in: a passkey-owned MSCA signs free attempts; undeployed accounts verify through ERC-6492 ([`scripts/circle-6492-check.ts`](apps/web/scripts/circle-6492-check.ts) proves it on Arc) | live |
+| Circle Modular Wallets | passkey sign-in and recovery (register a wallet as recovery key, restore a lost passkey; gas sponsored by Gas Station): a passkey-owned MSCA signs free attempts; undeployed accounts verify through ERC-6492 ([`scripts/circle-6492-check.ts`](apps/web/scripts/circle-6492-check.ts) proves it on Arc) | live |
 | Gateway + x402 | the agent's VENDOR bills: Gateway deposit, then one x402 purchase per cycle (`BatchEvmScheme`) | live on testnet |
 | Facilitator Service | the 0.05 USDC paid attempt, settled into the vault | not built |
 | Bridge Kit / CCTP V2 | contributor payout on Base | cut |
